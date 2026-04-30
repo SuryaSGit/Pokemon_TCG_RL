@@ -307,6 +307,7 @@ class GameState:
     turn_number: int = 0
     game_over: bool = False
     winner: int = -1
+    win_reason: str = ""             # "ko" | "deckout" | "timeout" | ""
     rng: Any = None                  # seeded numpy rng
     # Per-turn transient flags (cleared each turn)
     damage_reduction: Dict[int, int] = field(default_factory=dict)   # player_idx -> reduction
@@ -708,6 +709,7 @@ class GameEngine:
             if not p.deck:
                 gs.game_over = True
                 gs.winner = 1 - pidx
+                gs.win_reason = "deckout"
                 return False
             p.hand.append(p.deck.pop(0))
         return True
@@ -994,6 +996,7 @@ class GameEngine:
                 # No bench pokemon → loser loses immediately
                 gs.game_over = True
                 gs.winner = winner_idx
+                gs.win_reason = "ko"
                 return
             elif len(loser.bench) == 1:
                 # Only one option — auto-promote, no choice needed
@@ -1011,6 +1014,7 @@ class GameEngine:
         if winner.ko_count >= KO_TO_WIN:
             gs.game_over = True
             gs.winner = winner_idx
+            gs.win_reason = "ko"
 
     def _end_turn(self, gs: GameState) -> None:
         """Switch active player, increment turn counter."""
@@ -1087,6 +1091,7 @@ class PokemonTCGEnv:
             done = True
             self.gs.game_over = True
             self.gs.winner = -1  # draw
+            self.gs.win_reason = "timeout"
 
         # If not done and player switched, start new turn
         if not done and self.gs.current_player != current_player_before:
@@ -1097,6 +1102,7 @@ class PokemonTCGEnv:
             "current_player": self.gs.current_player,
             "turn": self.gs.turn_number,
             "winner": self.gs.winner if done else -1,
+            "win_reason": self.gs.win_reason if done else "",
             "ko_counts": [p.ko_count for p in self.gs.players],
         }
 

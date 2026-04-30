@@ -68,8 +68,8 @@ def load_leaderboard() -> dict:
         with open(LEADERBOARD) as f:
             return json.load(f)
     return {
-        "ppo": {"champion_winrate": 0.0, "history": [], "total_episodes": 0},
-        "dqn": {"champion_winrate": 0.0, "history": [], "total_episodes": 0},
+        "ppo": {"champion_winrate": 0.0, "champion_score": 0.0, "history": [], "total_episodes": 0},
+        "dqn": {"champion_winrate": 0.0, "champion_score": 0.0, "history": [], "total_episodes": 0},
     }
 
 def save_leaderboard(lb: dict):
@@ -77,17 +77,22 @@ def save_leaderboard(lb: dict):
         json.dump(lb, f, indent=2)
 
 def record_result(lb: dict, agent_key: str, winrate: float,
-                  episodes: int, promoted: bool):
+                  episodes: int, promoted: bool,
+                  score: float = 0.0, ko_wins: int = 0, deckout_wins: int = 0):
     entry = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M"),
-        "winrate":   round(winrate, 4),
-        "episodes":  episodes,
-        "champion":  promoted,
+        "timestamp":    time.strftime("%Y-%m-%d %H:%M"),
+        "winrate":      round(winrate, 4),
+        "score":        round(score, 1),
+        "ko_wins":      ko_wins,
+        "deckout_wins": deckout_wins,
+        "episodes":     episodes,
+        "champion":     promoted,
     }
     lb[agent_key]["history"].append(entry)
     lb[agent_key]["total_episodes"] += episodes
     if promoted:
         lb[agent_key]["champion_winrate"] = round(winrate, 4)
+        lb[agent_key]["champion_score"]   = round(score, 1)
 
 def show_stats():
     header("LEADERBOARD & STATS")
@@ -97,15 +102,21 @@ def show_stats():
         data = lb[key]
         subheader(label)
         wr_str = f"{data['champion_winrate']:.1%}"
+        sc_str = f"{data.get('champion_score', 0):.0f}"
         print(f"  Champion win-rate : {_c(wr_str, G)}")
+        print(f"  Champion score    : {_c(sc_str, G)}  (KO×5 + deckout×1, 10k games)")
         print(f"  Total episodes    : {data['total_episodes']}")
         print(f"  Training runs     : {len(data['history'])}")
         if data["history"]:
-            print(f"\n  {'Date':>18}  {'WinRate':>8}  {'Episodes':>9}  {'Status':>10}")
-            print(f"  {'─'*52}")
+            print(f"\n  {'Date':>18}  {'Score':>8}  {'Win%':>7}  {'KO W':>6}  {'Deck W':>7}  {'Eps':>7}  {'Status':>12}")
+            print(f"  {'─'*72}")
             for e in data["history"][-10:]:
                 star = _c("★ CHAMPION", G) if e["champion"] else _c("  skipped", DIM)
-                print(f"  {e['timestamp']:>18}  {e['winrate']:>7.1%}  {e['episodes']:>9}  {star}")
+                sc   = e.get("score", 0)
+                ko   = e.get("ko_wins", 0)
+                dk   = e.get("deckout_wins", 0)
+                print(f"  {e['timestamp']:>18}  {sc:>8.0f}  {e['winrate']:>6.1%}  "
+                      f"{ko:>6}  {dk:>7}  {e['episodes']:>7}  {star}")
 
 # ════════════════════════════════════════════════════════════════════════════
 # AGENT LOADER
@@ -131,20 +142,42 @@ def load_agent(player_idx: int, prefer_champion: bool = True) -> PPOAgent | DQNA
     info(f"No saved {cls_name} found — using random initialisation")
     return agent
 
-def benchmark(agent: PPOAgent | DQNAgent, n_games: int = 100,
-              opponent_is_random: bool = True, seed: int = 9999) -> float:
+def score_agent(agent: PPOAgent | DQNAgent,
+                n_games: int = 10_000,
+                seed: int = 777_777,
+                ko_weight: float = 5.0,
+                deckout_weight: float = 1.0,
+                verbose: bool = False) -> Dict:
     """
-    Returns win-rate of agent against a random opponent.
-    Agent always plays as its player_idx.
+    Run agent against a random opponent for n_games with a fixed seed.
+
+    Scoring:
+      KO win     → ko_weight     points  (default 5)
+      Deck-out win → deckout_weight points (default 1)
+      Loss / draw  → 0 points
+
+    Returns a dict with:
+      score       — weighted sum (the champion metric)
+      winrate     — raw win % (for display)
+      ko_wins     — count of KO wins
+      deckout_wins — count of deck-out wins
+      losses      — count of losses
+      draws       — count of draws / timeouts
     """
-    rng = np.random.default_rng(seed)
-    wins = 0
+    rng        = np.random.default_rng(seed)   # same seed every call → deterministic comparison
+    score      = 0.0
+    wins       = 0
+    ko_wins    = 0
+    deckout_wins = 0
+    losses     = 0
+    draws      = 0
+
     for g in range(n_games):
         senv = SelfPlayEnv(seed=int(rng.integers(1e9)))
         senv.reset()
         turns = 0
         while not senv.done and turns < 500:
-            cp = senv.current_player
+            cp        = senv.current_player
             obs, mask = senv.obs_and_mask(cp)
             if cp == agent.player_idx:
                 if isinstance(agent, PPOAgent):
@@ -152,23 +185,71 @@ def benchmark(agent: PPOAgent | DQNAgent, n_games: int = 100,
                 else:
                     action = agent.act(obs, mask, deterministic=True)
             else:
-                legal = np.where(mask > 0)[0]
+                legal  = np.where(mask > 0)[0]
                 action = int(rng.choice(legal))
             senv.step(action)
             turns += 1
-        if senv.winner == agent.player_idx:
+
+        w      = senv.winner
+        reason = senv.env.gs.win_reason
+
+        if w == agent.player_idx:
             wins += 1
-    return wins / n_games
+            if reason == "ko":
+                score     += ko_weight
+                ko_wins   += 1
+            else:
+                score        += deckout_weight
+                deckout_wins += 1
+        elif w == -1:
+            draws += 1
+        else:
+            losses += 1
+
+        if verbose and (g + 1) % 1000 == 0:
+            pct = (g + 1) / n_games
+            wr  = wins / (g + 1)
+            bar = "█" * int(20 * pct) + "░" * (20 - int(20 * pct))
+            print(f"\r  [{bar}] {pct:.0%}  score={score:.0f}  WR={wr:.1%}", end="", flush=True)
+
+    if verbose:
+        print()
+
+    return {
+        "score":        score,
+        "winrate":      wins / n_games,
+        "ko_wins":      ko_wins,
+        "deckout_wins": deckout_wins,
+        "losses":       losses,
+        "draws":        draws,
+        "n_games":      n_games,
+    }
+
+
+def benchmark(agent: PPOAgent | DQNAgent, n_games: int = 100,
+              opponent_is_random: bool = True, seed: int = 9999) -> float:
+    """Quick win-rate check (lightweight, used during training progress reports)."""
+    result = score_agent(agent, n_games=n_games, seed=seed, verbose=False)
+    return result["winrate"]
 
 # ════════════════════════════════════════════════════════════════════════════
 # INCREMENTAL TRAINING
 # ════════════════════════════════════════════════════════════════════════════
 
 def run_training(n_episodes: int = 500, eval_games: int = 100,
-                 improvement_threshold: float = 0.02):
+                 improvement_threshold: float = 50.0):
     """
-    Load existing champions, train for n_episodes more, benchmark.
-    Saves new weights only if winrate improves by > threshold.
+    Load existing champions, train for n_episodes self-play episodes, then
+    evaluate both old champion and challenger over 10,000 games with a fixed
+    seed using weighted scoring (KO win = 5 pts, deck-out win = 1 pt).
+
+    The challenger replaces the champion only if its score exceeds the
+    champion's by at least `improvement_threshold` points (default 50).
+    50 pts ≈ 10 extra KO wins or 50 extra deck-out wins over 10k games.
+
+    If no champion file exists yet, the challenger is always promoted.
+    On failure to improve, in-memory weights are reverted to the pre-training
+    snapshot so the champion is never degraded.
     """
     header("INCREMENTAL TRAINING")
 
@@ -188,14 +269,10 @@ def run_training(n_episodes: int = 500, eval_games: int = 100,
         subheader("Behavioral Cloning warm-start (from HeuristicAgent)")
         pretrain_agents(ppo, dqn, n_games=200, n_epochs=6, verbose=True)
 
-    old_ppo_wr = lb["ppo"]["champion_winrate"]
-    old_dqn_wr = lb["dqn"]["champion_winrate"]
-
-    subheader("Baseline benchmark (vs random, 100 games)")
-    pre_ppo = benchmark(ppo, n_games=eval_games, seed=1111)
-    pre_dqn = benchmark(dqn, n_games=eval_games, seed=2222)
-    print(f"  PPO pre-train win-rate : {_c(f'{pre_ppo:.1%}', Y)}")
-    print(f"  DQN pre-train win-rate : {_c(f'{pre_dqn:.1%}', Y)}")
+    old_ppo_score = lb["ppo"].get("champion_score", 0.0)
+    old_dqn_score = lb["dqn"].get("champion_score", 0.0)
+    info(f"Existing PPO champion score: {old_ppo_score:.0f}")
+    info(f"Existing DQN champion score: {old_dqn_score:.0f}")
 
     # ── Self-play training loop ───────────────────────────────────────────
     subheader(f"Training {n_episodes} self-play episodes")
@@ -262,47 +339,80 @@ def run_training(n_episodes: int = 500, eval_games: int = 100,
             print(f"  [{bar}] {pct:.0%}  P0={w0:.0%} P1={w1:.0%}  "
                   f"{elapsed:.0f}s elapsed  ETA {eta:.0f}s")
 
-    # ── Post-training benchmark ───────────────────────────────────────────
-    subheader("Post-training benchmark (vs random, 100 games)")
-    post_ppo = benchmark(ppo, n_games=eval_games, seed=3333)
-    post_dqn = benchmark(dqn, n_games=eval_games, seed=4444)
+    # ── Champion evaluation: 10k games, fixed seed, weighted score ───────
+    EVAL_GAMES = 10_000
+    EVAL_SEED  = 777_777   # same seed every run → deterministic comparison
+    KO_W       = 5.0
+    DECK_W     = 1.0
+    # Challenger must beat champion by this many weighted points to be crowned.
+    # 50 pts ≈ 10 extra KO wins OR 50 extra deck-out wins over 10k games.
+    MIN_IMPROVEMENT = improvement_threshold   # reuse the arg as absolute pts
 
-    print(f"\n  {'Agent':10s}  {'Before':>8}  {'After':>8}  {'Δ':>8}  {'Decision':>12}")
-    print(f"  {'─'*52}")
+    subheader(f"Champion evaluation  ({EVAL_GAMES:,} games · seed {EVAL_SEED})")
+    print(f"  Scoring: KO win = ×{KO_W:.0f} pts  │  Deck-out win = ×{DECK_W:.0f} pt  │  Min improvement = {MIN_IMPROVEMENT:.0f} pts\n")
+    print(f"  {'Agent':6}  {'Challenger':>12}  {'Champion':>12}  {'Δ':>8}  {'Decision'}")
+    print(f"  {'─'*62}")
 
-    for label, pre, post, agent_key, agent, champ_path, snap in [
-        ("PPO", pre_ppo, post_ppo, "ppo", ppo, PPO_CHAMP_PATH, ppo_snapshot),
-        ("DQN", pre_dqn, post_dqn, "dqn", dqn, DQN_CHAMP_PATH, dqn_snapshot),
+    for label, agent_key, agent, champ_path, snap in [
+        ("PPO", "ppo", ppo, PPO_CHAMP_PATH, ppo_snapshot),
+        ("DQN", "dqn", dqn, DQN_CHAMP_PATH, dqn_snapshot),
     ]:
-        delta = post - pre
-        old_champ = lb[agent_key]["champion_winrate"]
-        improved  = post > old_champ + improvement_threshold
+        # ── Score the challenger (newly trained weights) ──────────────────
+        print(f"  Scoring {label} challenger…")
+        new_result = score_agent(agent, n_games=EVAL_GAMES, seed=EVAL_SEED,
+                                 ko_weight=KO_W, deckout_weight=DECK_W, verbose=True)
+        new_score  = new_result["score"]
 
-        col    = G if delta > 0.01 else (R if delta < -0.01 else Y)
-        d_str  = _c(f"{delta:+.1%}", col)
-        status = ""
+        # ── Score the existing champion ───────────────────────────────────
+        champ_exists = os.path.exists(champ_path)
+        if champ_exists:
+            print(f"  Scoring {label} champion…")
+            champ_agent  = load_agent(0 if agent_key == "ppo" else 1, prefer_champion=True)
+            champ_result = score_agent(champ_agent, n_games=EVAL_GAMES, seed=EVAL_SEED,
+                                       ko_weight=KO_W, deckout_weight=DECK_W, verbose=True)
+            champ_score  = champ_result["score"]
+        else:
+            # No champion yet — first run always wins
+            champ_score = -1.0
+            info(f"No existing {label} champion — challenger auto-promoted")
+
+        # ── Promote or revert ─────────────────────────────────────────────
+        delta    = new_score - champ_score
+        improved = delta > MIN_IMPROVEMENT
+
+        col   = G if improved else (Y if delta > 0 else R)
+        d_str = _c(f"{delta:+.0f}", col)
 
         if improved:
-            # Save new champion
-            if agent_key == "ppo":
-                agent.save(PPO_CHAMP_PATH)
-                agent.save(PPO_PATH)
-            else:
-                agent.save(DQN_CHAMP_PATH)
-                agent.save(DQN_PATH)
-            record_result(lb, agent_key, post, n_episodes, promoted=True)
+            agent.save(champ_path)
+            agent.save(PPO_PATH if agent_key == "ppo" else DQN_PATH)
+            record_result(lb, agent_key, new_result["winrate"], n_episodes,
+                          promoted=True, score=new_score,
+                          ko_wins=new_result["ko_wins"],
+                          deckout_wins=new_result["deckout_wins"])
             status = _c("★ NEW CHAMPION", G)
         else:
-            # Revert to snapshot (don't overwrite champion)
+            # Revert in-memory weights to the snapshot taken before training
             if agent_key == "ppo":
                 agent.net.set_params(snap)
             else:
                 agent.qnet.set_params(snap)
                 agent.tnet.copy_params_from(agent.qnet)
-            record_result(lb, agent_key, post, n_episodes, promoted=False)
+            record_result(lb, agent_key, new_result["winrate"], n_episodes,
+                          promoted=False, score=new_score,
+                          ko_wins=new_result["ko_wins"],
+                          deckout_wins=new_result["deckout_wins"])
             status = _c("  kept old", DIM)
 
-        print(f"  {label:10s}  {pre:>7.1%}  {post:>7.1%}  {d_str:>8}  {status}")
+        champ_str = f"{champ_score:.0f}" if champ_exists else "  (none)"
+        print(f"  {label:6}  "
+              f"{new_score:>9.0f} pts  "
+              f"{champ_str:>9} pts  "
+              f"{d_str:>8}  "
+              f"{status}")
+        print(f"         WR {new_result['winrate']:.1%}  "
+              f"KO {new_result['ko_wins']}  "
+              f"Deck {new_result['deckout_wins']}\n")
 
     save_leaderboard(lb)
     print()
@@ -752,6 +862,7 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
         subheader(f"{label}  (Player {player_idx}) vs Random")
 
         wins = 0; losses = 0; draws = 0
+        ko_wins = 0; deckout_wins = 0
         ko_totals_agent  = []
         ko_totals_random = []
         turn_totals      = []
@@ -783,8 +894,9 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
                 senv.step(action)
                 turns += 1
 
-            w = senv.winner
-            gs = senv.env.gs
+            w      = senv.winner
+            reason = senv.env.gs.win_reason
+            gs     = senv.env.gs
 
             ko_agent  = gs.players[player_idx].ko_count
             ko_random = gs.players[1 - player_idx].ko_count
@@ -794,6 +906,10 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
 
             if w == player_idx:
                 wins += 1
+                if reason == "ko":
+                    ko_wins += 1
+                else:
+                    deckout_wins += 1
                 outcomes.append("W")
             elif w == -1:
                 draws += 1
@@ -802,15 +918,17 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
                 losses += 1
                 outcomes.append("L")
 
-            # Live progress bar
-            done_pct = (g + 1) / n_games
-            filled   = int(bar_width * done_pct)
-            wr_live  = wins / (g + 1)
-            col      = G if wr_live >= 0.55 else (Y if wr_live >= 0.40 else R)
-            bar      = f"{col}{'█' * filled}{RST}{'░' * (bar_width - filled)}"
+            # Live progress bar — show weighted score live
+            done_pct    = (g + 1) / n_games
+            filled      = int(bar_width * done_pct)
+            wr_live     = wins / (g + 1)
+            score_live  = ko_wins * 5 + deckout_wins
+            col         = G if wr_live >= 0.55 else (Y if wr_live >= 0.40 else R)
+            bar         = f"{col}{'█' * filled}{RST}{'░' * (bar_width - filled)}"
             print(f"\r  [{bar}] {g+1:>3}/{n_games}  "
                   f"W={_c(wins, G)} L={_c(losses, R)} D={_c(draws, Y)}  "
-                  f"WR={_c(f'{wr_live:.1%}', col)}  ", end="", flush=True)
+                  f"WR={_c(f'{wr_live:.1%}', col)}  score={_c(score_live, col)}  ",
+                  end="", flush=True)
 
         print()   # newline after progress bar
 
@@ -830,37 +948,45 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
         longest       = max(turn_totals)
         shortest      = min(turn_totals)
 
-        print(f"\n  {'Metric':<28} {'Value':>10}")
-        print(f"  {'─' * 40}")
-        print(f"  {'Win-rate':<28} {_c(f'{winrate:.1%}', col):>10}")
-        print(f"  {'Wins / Losses / Draws':<28} {f'{wins} / {losses} / {draws}':>10}")
-        print(f"  {'Avg KOs (champion)':<28} {avg_ko_agent:>10.2f}")
-        print(f"  {'Avg KOs (random)':<28} {avg_ko_random:>10.2f}")
-        print(f"  {'Avg turns per game':<28} {avg_turns:>10.1f}")
-        print(f"  {'Shortest game (turns)':<28} {shortest:>10}")
-        print(f"  {'Longest game (turns)':<28} {longest:>10}")
+        print(f"\n  {'Metric':<30} {'Value':>10}")
+        print(f"  {'─' * 42}")
+        print(f"  {'Win-rate':<30} {_c(f'{winrate:.1%}', col):>10}")
+        print(f"  {'Wins / Losses / Draws':<30} {f'{wins} / {losses} / {draws}':>10}")
+        print(f"  {'  KO wins (×5 pts each)':<30} {ko_wins:>10}")
+        print(f"  {'  Deck-out wins (×1 pt each)':<30} {deckout_wins:>10}")
+        weighted = ko_wins * 5 + deckout_wins * 1
+        print(f"  {'Weighted score':<30} {_c(str(weighted), col):>10}")
+        print(f"  {'Avg KOs (champion)':<30} {avg_ko_agent:>10.2f}")
+        print(f"  {'Avg KOs (random)':<30} {avg_ko_random:>10.2f}")
+        print(f"  {'Avg turns per game':<30} {avg_turns:>10.1f}")
+        print(f"  {'Shortest game (turns)':<30} {shortest:>10}")
+        print(f"  {'Longest game (turns)':<30} {longest:>10}")
 
         all_results.append({
-            "label":    label,
-            "winrate":  winrate,
-            "wins":     wins,
-            "losses":   losses,
-            "draws":    draws,
+            "label":         label,
+            "winrate":       winrate,
+            "wins":          wins,
+            "losses":        losses,
+            "draws":         draws,
+            "ko_wins":       ko_wins,
+            "deckout_wins":  deckout_wins,
+            "score":         ko_wins * 5 + deckout_wins,
             "avg_ko_agent":  avg_ko_agent,
             "avg_ko_random": avg_ko_random,
-            "avg_turns": avg_turns,
+            "avg_turns":     avg_turns,
         })
 
     # Summary if both decks were benchmarked
     if len(all_results) == 2:
         subheader("Summary")
-        print(f"  {'Agent':<30} {'Win-rate':>10}  {'Avg KOs':>8}  {'Avg Turns':>10}")
-        print(f"  {'─' * 62}")
+        print(f"  {'Agent':<30} {'Win-rate':>10}  {'Score':>8}  {'KO W':>6}  {'Deck W':>7}  {'Avg Turns':>10}")
+        print(f"  {'─' * 72}")
         for r in all_results:
             col = G if r["winrate"] >= 0.60 else (Y if r["winrate"] >= 0.45 else R)
             wr_str = f'{r["winrate"]:.1%}'
             print(f"  {r['label']:<30} {_c(wr_str, col):>10}  "
-                  f"{r['avg_ko_agent']:>8.2f}  {r['avg_turns']:>10.1f}")
+                  f"{r['score']:>8}  {r['ko_wins']:>6}  "
+                  f"{r['deckout_wins']:>7}  {r['avg_turns']:>10.1f}")
 
     return all_results
 
@@ -889,7 +1015,7 @@ def main():
     elif cmd == "train":
         episodes  = int(flag("episodes", 500))
         eval_g    = int(flag("eval",     100))
-        threshold = float(flag("threshold", 0.02))
+        threshold = float(flag("threshold", 50))
         run_training(n_episodes=episodes, eval_games=eval_g,
                      improvement_threshold=threshold)
 
@@ -913,10 +1039,10 @@ def main():
 
             {_c('python play_and_train.py train', G)}
               Continue training from saved .npy files.
-              Only promotes new weights if they beat the champion.
-              {DIM}--episodes 500     how many self-play episodes to run
-              --eval 100         games used for benchmarking
-              --threshold 0.02   required improvement to crown new champion{RST}
+              Champion decided by 10,000-game weighted score (KO×5, deck-out×1).
+              New weights only saved if score beats champion by ≥ threshold pts.
+              {DIM}--episodes 500     self-play episodes to run (default: 500)
+              --threshold 50     min score improvement to crown new champion{RST}
 
             {_c('python play_and_train.py benchmark', G)}
               Run champion(s) against a random opponent and report win-rate.

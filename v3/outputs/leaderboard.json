@@ -1,26 +1,100 @@
 {
   "ppo": {
-    "champion_winrate": 0.91,
+    "champion_winrate": 0.8993,
     "history": [
       {
         "timestamp": "2026-04-30 01:13",
         "winrate": 0.91,
         "episodes": 50000,
         "champion": true
+      },
+      {
+        "timestamp": "2026-04-30 12:42",
+        "winrate": 0.87,
+        "episodes": 200000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:17",
+        "winrate": 0.92,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:35",
+        "winrate": 0.9,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:43",
+        "winrate": 0.8873,
+        "score": 29149.0,
+        "ko_wins": 5069,
+        "deckout_wins": 3804,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 14:52",
+        "winrate": 0.8993,
+        "score": 32373.0,
+        "ko_wins": 5845,
+        "deckout_wins": 3148,
+        "episodes": 200000,
+        "champion": true
       }
     ],
-    "total_episodes": 50000
+    "total_episodes": 480000,
+    "champion_score": 32373.0
   },
   "dqn": {
-    "champion_winrate": 0.75,
+    "champion_winrate": 0.7008,
     "history": [
       {
         "timestamp": "2026-04-30 01:13",
         "winrate": 0.75,
         "episodes": 50000,
         "champion": true
+      },
+      {
+        "timestamp": "2026-04-30 12:42",
+        "winrate": 0.71,
+        "episodes": 200000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:17",
+        "winrate": 0.62,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:35",
+        "winrate": 0.63,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 13:44",
+        "winrate": 0.5911,
+        "score": 14651.0,
+        "ko_wins": 2185,
+        "deckout_wins": 3726,
+        "episodes": 10000,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-30 14:53",
+        "winrate": 0.7008,
+        "score": 26940.0,
+        "ko_wins": 4983,
+        "deckout_wins": 2025,
+        "episodes": 200000,
+        "champion": true
       }
     ],
-    "total_episodes": 50000
+    "total_episodes": 480000,
+    "champion_score": 26940.0
   }
 }
