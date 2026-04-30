@@ -1,0 +1,26 @@
+{
+  "ppo": {
+    "champion_winrate": 0.83,
+    "history": [
+      {
+        "timestamp": "2026-04-29 23:30",
+        "winrate": 0.83,
+        "episodes": 10000,
+        "champion": true
+      }
+    ],
+    "total_episodes": 10000
+  },
+  "dqn": {
+    "champion_winrate": 0.82,
+    "history": [
+      {
+        "timestamp": "2026-04-29 23:30",
+        "winrate": 0.82,
+        "episodes": 10000,
+        "champion": true
+      }
+    ],
+    "total_episodes": 10000
+  }
+}

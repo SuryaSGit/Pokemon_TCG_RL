@@ -1,0 +1,50 @@
+{
+  "ppo": {
+    "champion_winrate": 0.34,
+    "history": [
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.34,
+        "episodes": 500,
+        "champion": true
+      },
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.34,
+        "episodes": 500,
+        "champion": false
+      },
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.34,
+        "episodes": 500,
+        "champion": false
+      }
+    ],
+    "total_episodes": 1500
+  },
+  "dqn": {
+    "champion_winrate": 0.64,
+    "history": [
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.61,
+        "episodes": 500,
+        "champion": true
+      },
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.64,
+        "episodes": 500,
+        "champion": true
+      },
+      {
+        "timestamp": "2026-04-29 23:06",
+        "winrate": 0.63,
+        "episodes": 500,
+        "champion": false
+      }
+    ],
+    "total_episodes": 1500
+  }
+}
