@@ -2,887 +2,556 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pokémon TCG</title>
 <style>
-/* ── Reset & Base ─────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg:       #1a1d2e;
-  --surface:  #242740;
-  --surface2: #2e3254;
-  --border:   #404570;
-  --text:     #e8eaf6;
-  --dim:      #8890b8;
-  --green:    #4caf82;
-  --red:      #e05555;
-  --yellow:   #f0c040;
-  --blue:     #5090e0;
-  --legal:    #4caf82;
-  --legal-bg: rgba(76,175,130,0.15);
-  --legal-border: rgba(76,175,130,0.7);
-  --selected: rgba(80,144,224,0.25);
-  --selected-border: rgba(80,144,224,0.9);
-  --hp-good:  #4caf82;
-  --hp-mid:   #f0c040;
-  --hp-low:   #e05555;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1120;--s1:#181b2e;--s2:#1f2340;--s3:#272c50;
+  --bd:#363b60;--bd2:#484f7a;
+  --tx:#dde0f5;--dim:#6870a0;--dimmer:#40456a;
+  --gr:#38c87a;--rd:#e05060;--yl:#f0c030;--bl:#4a8de0;
+  --glw:rgba(56,200,122,0.5);--gbg:rgba(56,200,122,0.12);--gbd:rgba(56,200,122,0.8);
 }
-html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif;
-             background: var(--bg); color: var(--text); font-size: 14px; }
+html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:13px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
 
-/* ── Layout ───────────────────────────────────────────────── */
-#app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+/* ═ TOPBAR ══════════════════════════════════════════════ */
+#bar{
+  display:flex;align-items:center;gap:10px;padding:5px 12px;
+  background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0;
+}
+#bar h1{font-size:0.88rem;font-weight:700;color:var(--yl);letter-spacing:1px}
+#tb{padding:2px 9px;border-radius:20px;font-size:0.7rem;font-weight:600;background:var(--s2);border:1px solid var(--bd2);color:var(--dim);transition:all .25s}
+#tb.my{background:rgba(56,200,122,.15);border-color:var(--gr);color:var(--gr)}
+#tb.bot{background:rgba(74,141,224,.15);border-color:var(--bl);color:var(--bl)}
+.sp{flex:1}
+.dots{display:none;align-items:center;gap:3px;font-size:0.68rem;color:var(--bl)}
+.dots.on{display:flex}
+.dots i{width:5px;height:5px;border-radius:50%;background:var(--bl);animation:pu 1s infinite}
+.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
+@keyframes pu{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+.btn{padding:4px 11px;border-radius:5px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);cursor:pointer;font-size:0.76rem;font-weight:600;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--s3);border-color:var(--bd2)}
+.btn.y{border-color:var(--yl);color:var(--yl)}.btn.y:hover{background:rgba(240,192,48,.12)}
+.btn.y:disabled{opacity:.3;cursor:not-allowed}
+.btn.r{border-color:var(--rd);color:var(--rd)}.btn.r:hover{background:rgba(224,80,96,.1)}
 
-#header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-#header h1 { font-size: 1.1rem; font-weight: 700; color: var(--yellow); letter-spacing: 1px; }
-#turn-info  { font-size: 0.85rem; color: var(--dim); }
-#header-btns { display: flex; gap: 8px; }
+/* ═ MAIN ════════════════════════════════════════════════ */
+#main{display:flex;flex:1;overflow:hidden}
+#board{flex:1;display:flex;flex-direction:column;padding:6px 8px;gap:5px;overflow:hidden;min-width:0}
+#sidebar{width:200px;display:flex;flex-direction:column;background:var(--s1);border-left:1px solid var(--bd);flex-shrink:0}
+#lhdr{padding:5px 8px;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--bd)}
+#log{flex:1;overflow-y:auto;padding:5px 7px;font-size:0.68rem;line-height:1.6}
+#log p{padding:1px 0;border-bottom:1px solid rgba(255,255,255,.03);color:var(--dim)}
+#log p:last-child{color:var(--tx)}
+#log p.bot{color:#6aaaf0}
+#log p.me{color:var(--gr)}
+#log p.ev{color:var(--yl)}
 
-#main { display: flex; flex: 1; overflow: hidden; }
+/* ═ STAT BARS ═══════════════════════════════════════════ */
+.sbar{display:flex;align-items:center;gap:8px;background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:4px 9px;flex-shrink:0;flex-wrap:wrap}
+.kot{display:flex;gap:3px}
+.kp{width:9px;height:9px;border-radius:50%;border:1px solid var(--bd);background:var(--s3);transition:background .25s}
+.kp.on{background:var(--yl);border-color:#b89000}
+.sl{font-size:0.56rem;color:var(--dimmer);text-transform:uppercase;letter-spacing:.5px}
+.sv{font-size:0.82rem;font-weight:700}
+.fl{font-size:0.58rem;padding:1px 6px;border-radius:10px;border:1px solid var(--bd);color:var(--dimmer)}
+.fl.on{border-color:var(--gr);color:var(--gr);background:rgba(56,200,122,.1)}
+.fl.off{opacity:.3}
+.pc{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+.pci{width:34px;height:47px;border-radius:4px;border:1px solid var(--bd);background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:0.9rem;overflow:hidden;color:var(--dimmer)}
+.pci img{width:100%;height:100%;object-fit:cover}
+.pcl{font-size:0.5rem;color:var(--dimmer)}
 
-/* ── Board column ─────────────────────────────────────────── */
-#board {
-  flex: 1; display: flex; flex-direction: column;
-  padding: 10px; gap: 8px; overflow-y: auto;
+/* ═ ARENA ═══════════════════════════════════════════════ */
+#arena{
+  display:flex;align-items:center;gap:8px;flex:1;overflow:hidden;
+  background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:6px 10px;
+  min-height:0;
 }
+/* Each half: active in middle flanked by bench */
+.half{display:flex;align-items:center;gap:6px;flex:1;min-width:0;justify-content:center}
+.half.opp{flex-direction:row-reverse}
+.zone{display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0}
+.zlbl{font-size:0.54rem;text-transform:uppercase;letter-spacing:.5px;color:var(--dimmer);font-weight:700}
+.adiv{width:1px;align-self:stretch;background:var(--bd);flex-shrink:0;margin:0 2px}
+.brow{display:flex;gap:4px;align-items:center}
 
-/* ── Side panel ───────────────────────────────────────────── */
-#sidebar {
-  width: 260px; display: flex; flex-direction: column;
-  background: var(--surface); border-left: 1px solid var(--border);
-  overflow: hidden; flex-shrink: 0;
+/* ═ CARD BASE ════════════════════════════════════════════ */
+/* No transform on hover — prevents jitter. Use box-shadow + border only. */
+.card{
+  border-radius:7px;border:2px solid var(--bd);background:var(--s2);
+  cursor:pointer;transition:border-color .15s,box-shadow .15s;
+  position:relative;overflow:hidden;flex-shrink:0;
 }
-#log-title { padding: 8px 12px; font-size: 0.75rem; font-weight: 600;
-             text-transform: uppercase; letter-spacing: 1px; color: var(--dim);
-             border-bottom: 1px solid var(--border); }
-#log { flex: 1; overflow-y: auto; padding: 8px; font-size: 0.78rem;
-       line-height: 1.6; color: var(--dim); }
-#log p { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-#log p:last-child { color: var(--text); }
+.card:hover{border-color:var(--bd2);box-shadow:0 0 6px rgba(255,255,255,.08)}
+.card.legal{border-color:var(--gbd)!important;background:var(--gbg)!important;box-shadow:0 0 10px var(--glw)}
+.card.legal:hover{box-shadow:0 0 16px var(--glw)}
+.card.dim{opacity:.4;cursor:default}.card.dim:hover{border-color:var(--bd);box-shadow:none}
 
-/* ── Sections ─────────────────────────────────────────────── */
-.section-label {
-  font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 1px; color: var(--dim); padding: 2px 0;
-}
+/* Active card — tall enough to show full image: 100×160 */
+.ca{width:100px}
+.ca .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block}
+.ca .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.55rem;color:var(--dimmer);background:var(--s3)}
+.ca .cn{font-size:0.64rem;font-weight:700;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ca .cs{font-size:0.5rem;color:var(--dimmer);padding:0 4px 1px}
+.ca .hbw{margin:2px 4px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
+.ca .hbf{height:100%;border-radius:2px;transition:width .3s}
+.ca .ht{font-size:0.5rem;color:var(--dim);padding:0 4px 1px}
+.ca .ce{display:flex;flex-wrap:wrap;gap:2px;padding:1px 4px}
+.ca .atks{display:flex;flex-direction:column;gap:2px;padding:2px 4px}
+.ca .ab{background:var(--s3);border:1px solid var(--bd);border-radius:3px;padding:2px 3px;font-size:0.54rem;cursor:pointer;transition:border-color .1s,background .1s;text-align:left}
+.ca .ab.legal{border-color:var(--gbd);color:var(--tx);background:var(--gbg)}
+.ca .ab.legal:hover{background:rgba(56,200,122,.25)}
+.ca .ab:not(.legal){opacity:.35;cursor:not-allowed}
+.ca .an{font-weight:700}.ca .ad{color:var(--yl);font-weight:700;margin-left:3px}
+.ca .ac{display:flex;gap:2px;margin-bottom:1px}
+.ca .ap{width:7px;height:7px;border-radius:50%;border:1px solid rgba(255,255,255,.1)}
 
-/* ── Zone row ─────────────────────────────────────────────── */
-.zone-row {
-  display: flex; gap: 8px; align-items: center;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px;
-}
-.zone-label {
-  font-size: 0.65rem; color: var(--dim); text-transform: uppercase;
-  letter-spacing: 0.5px; margin-bottom: 4px;
-}
+/* Bench card — narrower: 72px wide */
+.cb{width:72px}
+.cb .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block}
+.cb .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.5rem;color:var(--dimmer);background:var(--s3)}
+.cb .cn{font-size:0.58rem;font-weight:700;padding:1px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb .hbw{margin:1px 3px;height:3px;background:var(--s3);border-radius:2px;overflow:hidden}
+.cb .hbf{height:100%;border-radius:2px;transition:width .3s}
+.cb .ht{font-size:0.48rem;color:var(--dim);padding:0 3px 1px}
+.cb .ce{display:flex;flex-wrap:wrap;gap:2px;padding:1px 3px 2px}
 
-/* ── Deck / Discard piles ─────────────────────────────────── */
-.pile-box {
-  width: 64px; flex-shrink: 0; display: flex; flex-direction: column;
-  align-items: center; gap: 4px;
-}
-.pile-card {
-  width: 54px; height: 74px; border-radius: 5px; border: 1px solid var(--border);
-  background: var(--surface2); display: flex; align-items: center; justify-content: center;
-  font-size: 0.6rem; color: var(--dim); text-align: center;
-  cursor: default; position: relative;
-}
-.pile-card img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
-.pile-count { font-size: 0.7rem; color: var(--dim); }
+/* Empty bench slot */
+.be{width:72px;border-radius:6px;border:1px dashed var(--bd);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--bd);flex-shrink:0;aspect-ratio:5/7}
 
-/* ── KO counter ───────────────────────────────────────────── */
-.ko-box {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 4px 8px;
-}
-.ko-label { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); }
-.ko-pips   { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; }
-.ko-pip {
-  width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border);
-  background: var(--surface2);
-}
-.ko-pip.filled { background: var(--yellow); border-color: #d4a800; }
+/* Energy pip */
+.ep{width:12px;height:12px;border-radius:50%;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:0.38rem;font-weight:900;color:#111;flex-shrink:0}
 
-/* ── Active Pokémon ───────────────────────────────────────── */
-.active-zone { flex: 0 0 auto; }
-.pokemon-card-large {
-  width: 110px; border-radius: 8px; border: 2px solid var(--border);
-  background: var(--surface2); padding: 6px; cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  position: relative;
-}
-.pokemon-card-large:hover { border-color: var(--blue); }
-.pokemon-card-large.legal { border-color: var(--legal-border); background: var(--legal-bg);
-                             box-shadow: 0 0 8px rgba(76,175,130,0.35); }
-.pokemon-card-large.selected { border-color: var(--selected-border); background: var(--selected); }
+/* ═ HAND ════════════════════════════════════════════════ */
+#harea{background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:5px 8px;flex-shrink:0}
+#hhdr{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.hl{font-size:0.57rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dimmer)}
+#hcards{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px;align-items:flex-end}
+#hcards::-webkit-scrollbar{height:4px}
+#hcards::-webkit-scrollbar-thumb{background:var(--bd);border-radius:2px}
 
-.pcard-img { width: 100%; height: 72px; object-fit: cover; border-radius: 4px;
-             background: var(--surface); margin-bottom: 4px; }
-.pcard-img-placeholder { width: 100%; height: 72px; border-radius: 4px;
-                          background: var(--surface); display: flex;
-                          align-items: center; justify-content: center;
-                          font-size: 0.6rem; color: var(--dim); margin-bottom: 4px; }
-.pcard-name  { font-size: 0.72rem; font-weight: 600; white-space: nowrap;
-               overflow: hidden; text-overflow: ellipsis; }
-.pcard-stage { font-size: 0.58rem; color: var(--dim); }
+/* Hand card — fixed 68px wide, full aspect ratio image, NO vertical transform */
+.hc{flex-shrink:0;width:68px;border-radius:6px;border:2px solid var(--bd);background:var(--s2);cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative}
+.hc:hover{border-color:var(--bd2);box-shadow:0 0 6px rgba(255,255,255,.07)}
+.hc.legal{border-color:var(--gbd);background:var(--gbg);box-shadow:0 0 9px var(--glw)}
+.hc.legal:hover{box-shadow:0 0 16px var(--glw)}
+.hc.sel{border-color:var(--bl);background:rgba(74,141,224,.15)}
+.hc:not(.legal):not(.sel){opacity:.38;cursor:default}.hc:not(.legal):not(.sel):hover{border-color:var(--bd);box-shadow:none}
+.hc .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block;border-radius:4px 4px 0 0}
+.hc .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.48rem;color:var(--dimmer);text-align:center;padding:3px;background:var(--s3);border-radius:4px 4px 0 0}
+.hc .hn{font-size:0.56rem;font-weight:700;padding:2px 3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc .ht2{font-size:0.48rem;color:var(--dimmer);padding:0 3px 3px}
+.hc .nb{position:absolute;top:-5px;right:-5px;background:var(--gr);color:#000;font-size:0.45rem;font-weight:900;padding:1px 4px;border-radius:8px;line-height:1.3;pointer-events:none}
 
-.hp-bar-wrap { margin: 3px 0; }
-.hp-bar-bg   { width: 100%; height: 5px; background: var(--surface);
-               border-radius: 3px; overflow: hidden; }
-.hp-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-.hp-text { font-size: 0.6rem; color: var(--dim); margin-top: 1px; }
+/* ═ MODALS ══════════════════════════════════════════════ */
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:200}
+.mbg.open{display:flex}
+.mbox{background:var(--s1);border:1px solid var(--bd2);border-radius:11px;padding:18px;min-width:240px;max-width:400px}
+.mttl{font-size:0.88rem;font-weight:700;margin-bottom:10px}
+.mlist{display:flex;flex-direction:column;gap:5px}
+.mb{background:var(--s2);border:1px solid var(--bd);border-radius:5px;padding:7px 10px;cursor:pointer;text-align:left;font-size:0.76rem;color:var(--tx);transition:all .12s}
+.mb:hover{border-color:var(--gbd);background:var(--gbg)}
+.mb.cancel{color:var(--dim)}.mb.cancel:hover{border-color:var(--rd);color:var(--rd);background:transparent}
 
-.energy-row { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 3px; }
-.energy-pip {
-  width: 14px; height: 14px; border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.45rem; font-weight: 700; color: #000;
-}
+/* Zoom */
+#zm .mbox{padding:0;overflow:hidden;max-width:280px;background:var(--s2)}
+#zm-img{width:100%;display:block;max-height:200px;object-fit:cover}
+#zm-body{padding:12px}
+#zm-name{font-size:0.98rem;font-weight:800;margin-bottom:2px}
+#zm-sub{font-size:0.66rem;color:var(--dim);margin-bottom:7px}
+#zm-hp{margin-bottom:5px}
+#zm-en{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:7px;align-items:center}
+#zm-atks{display:flex;flex-direction:column;gap:4px}
+.za{background:var(--s3);border:1px solid var(--bd);border-radius:5px;padding:5px 7px}
+.za-top{display:flex;align-items:center;gap:5px;margin-bottom:2px}
+.za-nm{font-weight:700;font-size:0.78rem}
+.za-dm{color:var(--yl);font-weight:800;font-size:0.82rem;margin-left:auto}
+.za-co{display:flex;gap:2px}
+.za-fx{font-size:0.6rem;color:var(--dim);font-style:italic}
+#zm-close{width:100%;padding:7px;background:var(--s3);border:none;border-top:1px solid var(--bd);color:var(--dim);cursor:pointer;font-size:0.72rem}
+#zm-close:hover{color:var(--tx)}
 
-/* ── Attacks on active ────────────────────────────────────── */
-.attacks-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
-.attack-btn {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 4px; padding: 3px 5px; cursor: pointer; text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-  font-size: 0.62rem; color: var(--dim);
-}
-.attack-btn.legal { border-color: var(--legal-border); color: var(--text);
-                    background: var(--legal-bg); cursor: pointer; }
-.attack-btn.legal:hover { background: rgba(76,175,130,0.3); }
-.attack-btn:not(.legal) { opacity: 0.45; cursor: not-allowed; }
-.attack-name { font-weight: 600; }
-.attack-dmg  { color: var(--yellow); font-weight: 700; margin-left: 4px; }
-.attack-cost { display: flex; gap: 2px; margin-bottom: 2px; }
-.cost-pip    { width: 10px; height: 10px; border-radius: 50%;
-               border: 1px solid rgba(255,255,255,0.15); }
+/* Promo */
+#pm .mbox{text-align:center}
+#pm-ch{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
 
-/* ── Bench row ────────────────────────────────────────────── */
-.bench-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.pokemon-card-small {
-  width: 80px; border-radius: 6px; border: 2px solid var(--border);
-  background: var(--surface2); padding: 5px; cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.pokemon-card-small:hover { border-color: var(--blue); }
-.pokemon-card-small.legal { border-color: var(--legal-border); background: var(--legal-bg);
-                             box-shadow: 0 0 6px rgba(76,175,130,0.3); }
-.pokemon-card-small.selected { border-color: var(--selected-border); }
-.pcard-small-img { width: 100%; height: 50px; object-fit: cover; border-radius: 3px;
-                   background: var(--surface); margin-bottom: 3px; }
-.pcard-small-img-ph { width: 100%; height: 50px; border-radius: 3px; background: var(--surface);
-                       display: flex; align-items: center; justify-content: center;
-                       font-size: 0.55rem; color: var(--dim); margin-bottom: 3px; }
-.bench-empty { width: 80px; height: 90px; border-radius: 6px; border: 1px dashed var(--border);
-               background: transparent; display: flex; align-items: center; justify-content: center;
-               font-size: 0.6rem; color: var(--border); }
+/* Game over */
+#gom .mbox{text-align:center;padding:28px}
+#go-msg{font-size:1.8rem;font-weight:800;margin-bottom:4px}
+#go-sub{font-size:0.8rem;color:var(--dim);margin-bottom:18px}
 
-/* ── Hand ─────────────────────────────────────────────────── */
-#hand-area { background: var(--surface); border: 1px solid var(--border);
-             border-radius: 8px; padding: 8px; }
-#hand-cards { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.hand-card {
-  width: 76px; border-radius: 6px; border: 2px solid var(--border);
-  background: var(--surface2); padding: 5px; cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
-  position: relative;
-}
-.hand-card:hover { transform: translateY(-4px); }
-.hand-card.legal { border-color: var(--legal-border); background: var(--legal-bg);
-                   box-shadow: 0 0 8px rgba(76,175,130,0.4); }
-.hand-card.legal:hover { transform: translateY(-6px); box-shadow: 0 4px 12px rgba(76,175,130,0.5); }
-.hand-card.selected { border-color: var(--selected-border); background: var(--selected);
-                       transform: translateY(-6px); box-shadow: 0 4px 12px rgba(80,144,224,0.5); }
-.hand-card:not(.legal):not(.selected) { opacity: 0.55; cursor: default; }
-.hand-card-img { width: 100%; height: 56px; object-fit: cover; border-radius: 3px;
-                 background: var(--surface); margin-bottom: 3px; }
-.hand-card-img-ph { width: 100%; height: 56px; border-radius: 3px; background: var(--surface);
-                     display: flex; align-items: center; justify-content: center;
-                     font-size: 0.55rem; color: var(--dim); text-align: center;
-                     margin-bottom: 3px; }
-.hand-card-name { font-size: 0.6rem; font-weight: 600; white-space: nowrap;
-                  overflow: hidden; text-overflow: ellipsis; }
-.hand-card-type { font-size: 0.55rem; color: var(--dim); }
-.hand-card-badge { position: absolute; top: -5px; right: -5px; background: var(--legal);
-                   color: #000; font-size: 0.5rem; font-weight: 700; padding: 1px 4px;
-                   border-radius: 8px; }
+/* Lobby */
+#lobby{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;z-index:500}
+.lbox{background:var(--s1);border:1px solid var(--bd2);border-radius:13px;padding:30px 36px;text-align:center;min-width:280px}
+.ltl{font-size:1.4rem;font-weight:800;color:var(--yl);margin-bottom:4px}
+.lsb{font-size:0.76rem;color:var(--dim);margin-bottom:20px}
+.dchs{display:flex;gap:10px;justify-content:center}
+.dbtn{background:var(--s2);border:2px solid var(--bd);border-radius:9px;padding:12px 16px;cursor:pointer;font-size:0.84rem;font-weight:700;transition:all .14s;min-width:110px;color:var(--tx)}
+.dbtn:hover{border-color:var(--gbd);background:var(--gbg);box-shadow:0 0 12px var(--glw)}
+.dbtn.r{border-color:#c47830;color:#c47830}.dbtn.e{border-color:#d4b800;color:#d4b800}
 
-/* ── Action popup ─────────────────────────────────────────── */
-#action-popup {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-  display: none; align-items: center; justify-content: center; z-index: 100;
-}
-#action-popup.open { display: flex; }
-.popup-box {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: 20px; min-width: 280px; max-width: 420px;
-}
-.popup-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
-.popup-actions { display: flex; flex-direction: column; gap: 8px; }
-.popup-btn {
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
-  padding: 8px 12px; cursor: pointer; text-align: left; font-size: 0.82rem;
-  color: var(--text); transition: border-color 0.15s, background 0.15s;
-}
-.popup-btn:hover { border-color: var(--legal-border); background: var(--legal-bg); }
-.popup-btn.cancel { color: var(--dim); }
-.popup-btn.cancel:hover { border-color: var(--red); color: var(--red); background: transparent; }
-
-/* ── Promotion modal ──────────────────────────────────────── */
-#promo-modal {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
-  display: none; align-items: center; justify-content: center; z-index: 200;
-}
-#promo-modal.open { display: flex; }
-.promo-box { background: var(--surface); border: 1px solid var(--border);
-              border-radius: 12px; padding: 24px; text-align: center; }
-.promo-title { font-size: 1.1rem; font-weight: 700; color: var(--yellow); margin-bottom: 6px; }
-.promo-sub   { font-size: 0.8rem; color: var(--dim); margin-bottom: 16px; }
-.promo-choices { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-
-/* ── Game over overlay ────────────────────────────────────── */
-#gameover-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.8);
-  display: none; align-items: center; justify-content: center; z-index: 300;
-  flex-direction: column; gap: 16px;
-}
-#gameover-overlay.open { display: flex; }
-#gameover-msg { font-size: 2rem; font-weight: 700; text-align: center; }
-#gameover-sub { font-size: 0.9rem; color: var(--dim); }
-
-/* ── Lobby ────────────────────────────────────────────────── */
-#lobby {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.88);
-  display: flex; align-items: center; justify-content: center; z-index: 400;
-  flex-direction: column; gap: 20px;
-}
-.lobby-box { background: var(--surface); border: 1px solid var(--border);
-              border-radius: 14px; padding: 32px 40px; text-align: center; min-width: 320px; }
-.lobby-title { font-size: 1.5rem; font-weight: 800; color: var(--yellow); margin-bottom: 6px; }
-.lobby-sub   { font-size: 0.85rem; color: var(--dim); margin-bottom: 24px; }
-.deck-choices { display: flex; gap: 12px; justify-content: center; }
-.deck-btn {
-  background: var(--surface2); border: 2px solid var(--border);
-  border-radius: 10px; padding: 14px 22px; cursor: pointer; font-size: 0.9rem;
-  font-weight: 600; transition: all 0.15s; min-width: 130px;
-}
-.deck-btn:hover { border-color: var(--legal-border); background: var(--legal-bg);
-                   box-shadow: 0 0 12px rgba(76,175,130,0.3); }
-.deck-btn.lycanroc { border-color: #c84; }
-.deck-btn.raichu   { border-color: #fe4; }
-
-/* ── Buttons ──────────────────────────────────────────────── */
-.btn {
-  padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border);
-  background: var(--surface2); color: var(--text); cursor: pointer;
-  font-size: 0.82rem; font-weight: 600; transition: all 0.15s;
-}
-.btn:hover  { border-color: var(--blue); background: rgba(80,144,224,0.15); }
-.btn.danger { border-color: var(--red); }
-.btn.danger:hover { background: rgba(224,85,85,0.15); }
-.btn.end-turn { border-color: var(--yellow); color: var(--yellow); }
-.btn.end-turn:hover { background: rgba(240,192,64,0.15); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* ── Spinner ──────────────────────────────────────────────── */
-.thinking { display: inline-flex; gap: 4px; align-items: center; font-size: 0.8rem;
-             color: var(--dim); }
-.thinking span { animation: blink 1.2s infinite; }
-.thinking span:nth-child(2) { animation-delay: 0.2s; }
-.thinking span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
-
-/* ── Scrollbar ────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bd);border-radius:2px}
 </style>
 </head>
 <body>
 
-<!-- ── Lobby ──────────────────────────────────────────────── -->
+<!-- LOBBY -->
 <div id="lobby">
-  <div class="lobby-box">
-    <div class="lobby-title">Pokémon TCG</div>
-    <div class="lobby-sub">Choose your deck to play against the champion bot</div>
-    <div class="deck-choices">
-      <button class="deck-btn lycanroc" onclick="startGame('lycanroc')">
-        🪨 Lycanroc<br><small style="font-weight:400;color:var(--dim)">Fighting</small>
-      </button>
-      <button class="deck-btn raichu" onclick="startGame('raichu')">
-        ⚡ Alolan Raichu<br><small style="font-weight:400;color:var(--dim)">Lightning/Psychic</small>
-      </button>
+  <div class="lbox">
+    <div class="ltl">Pokémon TCG</div>
+    <div class="lsb">Choose your deck — bot plays the other side</div>
+    <div class="dchs">
+      <button class="dbtn r" onclick="go('lycanroc')">🪨 Lycanroc<br><small style="font-weight:400;color:var(--dim)">Fighting</small></button>
+      <button class="dbtn e" onclick="go('raichu')">⚡ Alolan Raichu<br><small style="font-weight:400;color:var(--dim)">Lightning · Psychic</small></button>
     </div>
   </div>
 </div>
 
-<!-- ── Game over ───────────────────────────────────────────── -->
-<div id="gameover-overlay">
-  <div id="gameover-msg"></div>
-  <div id="gameover-sub"></div>
-  <button class="btn" onclick="showLobby()">Play Again</button>
-</div>
+<!-- GAME OVER -->
+<div class="mbg" id="gom"><div class="mbox"><div id="go-msg"></div><div id="go-sub"></div><button class="btn y" onclick="lobby()">Play Again</button></div></div>
 
-<!-- ── Promotion modal ────────────────────────────────────── -->
-<div id="promo-modal">
-  <div class="promo-box">
-    <div class="promo-title">⚠️ Active Pokémon was KO'd!</div>
-    <div class="promo-sub">Choose a Pokémon to send to the Active spot</div>
-    <div class="promo-choices" id="promo-choices"></div>
+<!-- PROMOTION -->
+<div class="mbg" id="pm"><div class="mbox"><div class="mttl">⚠️ Active KO'd — choose replacement</div><div id="pm-ch"></div></div></div>
+
+<!-- ACTION PICKER -->
+<div class="mbg" id="am"><div class="mbox"><div class="mttl" id="am-t">Choose action</div><div class="mlist" id="am-l"></div></div></div>
+
+<!-- ZOOM -->
+<div class="mbg" id="zm" onclick="czoom(event)">
+  <div class="mbox">
+    <img id="zm-img" src="" alt="">
+    <div id="zm-body">
+      <div id="zm-name"></div><div id="zm-sub"></div>
+      <div id="zm-hp"></div><div id="zm-en"></div><div id="zm-atks"></div>
+    </div>
+    <button id="zm-close" onclick="czoom()">✕ Close</button>
   </div>
 </div>
 
-<!-- ── Action popup (for two-step actions) ────────────────── -->
-<div id="action-popup">
-  <div class="popup-box">
-    <div class="popup-title" id="popup-title">Choose target</div>
-    <div class="popup-actions" id="popup-actions"></div>
-  </div>
-</div>
-
-<!-- ── Main App ────────────────────────────────────────────── -->
+<!-- APP -->
 <div id="app">
-  <div id="header">
+  <div id="bar">
     <h1>Pokémon TCG</h1>
-    <div id="turn-info">—</div>
-    <div id="header-btns">
-      <div class="thinking" id="thinking-indicator" style="display:none">
-        Bot is thinking<span>.</span><span>.</span><span>.</span>
-      </div>
-      <button class="btn end-turn" id="skip-btn" onclick="skipTurn()" disabled>
-        End Turn
-      </button>
-      <button class="btn danger" onclick="showLobby()">New Game</button>
-    </div>
+    <div id="tb">—</div>
+    <div class="sp"></div>
+    <div class="dots" id="dots"><i></i><i></i><i></i><span style="font-size:.68rem;color:var(--bl);margin-left:3px">Bot</span></div>
+    <button class="btn y" id="etb" onclick="skip()" disabled>End Turn</button>
+    <button class="btn r" onclick="lobby()">New Game</button>
   </div>
 
   <div id="main">
     <div id="board">
+      <div class="sbar" id="os"></div>
 
-      <!-- ── Opponent side ──────────────────────────────── -->
-      <div class="section-label">Opponent</div>
-      <div class="zone-row" id="opp-zone">
-        <!-- KOs + deck/discard filled by JS -->
-      </div>
-      <div class="zone-row" id="opp-bench-zone">
-        <div>
-          <div class="zone-label">Active</div>
-          <div id="opp-active-slot"></div>
+      <div id="arena">
+        <!-- OPP: bench | active -->
+        <div class="half opp" id="oh">
+          <div class="zone">
+            <div class="zlbl" style="color:var(--rd)">Active</div>
+            <div id="oa"></div>
+          </div>
+          <div class="adiv"></div>
+          <div class="zone">
+            <div class="zlbl">Bench</div>
+            <div class="brow" id="ob"></div>
+          </div>
         </div>
-        <div>
-          <div class="zone-label">Bench</div>
-          <div class="bench-row" id="opp-bench"></div>
+
+        <div style="width:2px;background:var(--bd2);align-self:stretch;flex-shrink:0;margin:0 6px;border-radius:1px"></div>
+
+        <!-- MY: active | bench -->
+        <div class="half" id="mh">
+          <div class="zone">
+            <div class="zlbl" style="color:var(--gr)">Active</div>
+            <div id="ma"></div>
+          </div>
+          <div class="adiv"></div>
+          <div class="zone">
+            <div class="zlbl">Bench</div>
+            <div class="brow" id="mb"></div>
+          </div>
         </div>
       </div>
 
-      <!-- ── Divider ────────────────────────────────────── -->
-      <div style="border-top:1px solid var(--border);margin:2px 0"></div>
+      <div class="sbar" id="ms"></div>
 
-      <!-- ── My side ────────────────────────────────────── -->
-      <div class="zone-row" id="my-bench-zone">
-        <div>
-          <div class="zone-label">My Active</div>
-          <div id="my-active-slot"></div>
-        </div>
-        <div>
-          <div class="zone-label">My Bench</div>
-          <div class="bench-row" id="my-bench"></div>
-        </div>
+      <div id="harea">
+        <div id="hhdr"><span class="hl">Your Hand</span><span id="hcnt" style="font-size:.6rem;color:var(--dimmer)"></span></div>
+        <div id="hcards"></div>
       </div>
-      <div class="zone-row" id="my-zone">
-        <!-- KOs + deck/discard filled by JS -->
-      </div>
+    </div>
 
-      <!-- ── Hand ──────────────────────────────────────── -->
-      <div id="hand-area">
-        <div class="section-label">Your Hand</div>
-        <div id="hand-cards"></div>
-      </div>
-
-    </div><!-- #board -->
-
-    <!-- ── Sidebar log ──────────────────────────────────── -->
     <div id="sidebar">
-      <div id="log-title">Battle Log</div>
+      <div id="lhdr">Battle Log</div>
       <div id="log"></div>
     </div>
-  </div><!-- #main -->
-</div><!-- #app -->
+  </div>
+</div>
 
 <script>
-/* ══════════════════════════════════════════════════════════════
-   STATE
-══════════════════════════════════════════════════════════════ */
-let state = null;
-let pollInterval = null;
+/* ══ CONSTS ═════════════════════════════════════════════ */
+const EC={Colorless:'#aaa',Fighting:'#c87830',Lightning:'#f0d020',Psychic:'#c070e8'};
+const EL={Colorless:'C',Fighting:'F',Lightning:'L',Psychic:'P'};
+const FX={heal_self_20:'Heal 20 from self',coin_plus10:'Flip coin: +10 on heads',flip4_20each:'Flip 4 coins: 20× each heads',coin_plus30:'Flip coin: +30 on heads',flip2_plus20each:'Flip 2 coins: +20× each heads',opponent_minus20_next_turn:"Opp next attack −20 dmg",discard_random_opponent_hand:"Shuffle random opp hand card into deck",plus30_vs_caterpie:'+30 vs Caterpie',bench_10_any:'10 dmg to any bench Pokémon',optional_plus40_self20:'+40 dmg, but deal 20 to self',coin_protect_self:'Flip: heads prevents damage next turn',discard_lightning_30each:'Discard ⚡ energy: 30× each discarded','10x_opp_energy':'10× opp active energy count',heal_active_20:'Heal active Pokémon 20 HP',heal_active_30:'Heal active Pokémon 30 HP',great_ball:'Look at top 7 cards, take a Pokémon',draw3:'Draw 3 cards'};
 
-/* ══════════════════════════════════════════════════════════════
-   GAME START
-══════════════════════════════════════════════════════════════ */
-async function startGame(deck) {
-  document.getElementById('lobby').style.display = 'none';
-  document.getElementById('gameover-overlay').classList.remove('open');
-  const res  = await fetch('/api/new_game', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({deck})
+/* ══ STATE ══════════════════════════════════════════════ */
+let S=null,poll=null;
+
+/* ══ NETWORK ════════════════════════════════════════════ */
+async function go(deck){
+  document.getElementById('lobby').style.display='none';
+  document.getElementById('gom').classList.remove('open');
+  S=await post('/api/new_game',{deck}); render(S); startPoll();
+}
+function lobby(){stopPoll();document.getElementById('gom').classList.remove('open');document.getElementById('lobby').style.display='flex';}
+function startPoll(){
+  stopPoll();
+  poll=setInterval(async()=>{
+    const s=await get('/api/state');
+    if(s&&s.mode!=='idle'){S=s;render(s);}
+    if(s&&s.mode==='over') stopPoll();
+  }, S&&S.pending_bot?250:700);
+}
+function stopPoll(){if(poll){clearInterval(poll);poll=null;}}
+async function act(idx){closeAM();S=await post('/api/action',{action:idx});render(S);if(S.pending_bot)startPoll();}
+async function skip(){S=await post('/api/skip_turn',{});render(S);if(S.pending_bot)startPoll();}
+async function get(url){try{const r=await fetch(url);return await r.json();}catch{return null;}}
+async function post(url,body){try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await r.json();}catch{return null;}}
+
+/* ══ RENDER ═════════════════════════════════════════════ */
+function render(s){
+  if(!s||s.mode==='idle') return;
+  rBar(s); rOS(s); rMS(s); rOA(s); rOB(s); rMA(s); rMB(s); rHand(s); rLog(s);
+  if(s.promotion&&s.promotion.player_idx===s.human_player) showPromo(s);
+  else document.getElementById('pm').classList.remove('open');
+  if(s.mode==='over'){stopPoll();showGO(s);}
+}
+
+function rBar(s){
+  const b=document.getElementById('tb'),btn=document.getElementById('etb'),d=document.getElementById('dots');
+  if(s.pending_bot){b.textContent=`Turn ${s.turn} · Bot…`;b.className='bot';}
+  else if(s.is_my_turn){b.textContent=`Turn ${s.turn} · Your turn`;b.className='my';}
+  else{b.textContent=`Turn ${s.turn}`;b.className='';}
+  d.className=s.pending_bot?'dots on':'dots';
+  btn.disabled=!s.is_my_turn||s.mode==='over';
+}
+
+/* ── Stat bars ──────────────────────────────────────────── */
+function rOS(s){
+  const o=s.opp;
+  document.getElementById('os').innerHTML=
+    koH(o.ko_count)+`<span class="sl" style="margin-left:3px">Opp KOs</span>`+
+    `<div class="sp"></div>`+
+    `<span class="sl">Hand</span><span class="sv" style="margin:0 8px 0 3px">${o.hand_size}</span>`+
+    pileH(o.deck_size,null,true)+pileH(o.discard_size,o.discard_top,false);
+}
+function rMS(s){
+  const m=s.my;
+  document.getElementById('ms').innerHTML=
+    koH(m.ko_count)+`<span class="sl" style="margin-left:3px">My KOs</span>`+
+    `<div class="sp"></div>`+
+    `<span class="fl ${s.energy_used?'off':'on'}">⚡ Energy</span>`+
+    `<span class="fl ${s.supporter_used?'off':'on'}">📣 Supporter</span>`+
+    pileH(m.deck_size,null,true)+pileH(m.discard_size,m.discard_top,false);
+}
+function koH(n){
+  let h='';for(let i=0;i<6;i++)h+=`<div class="kp${i<n?' on':''}"></div>`;
+  return `<div class="kot">${h}</div>`;
+}
+function pileH(count,top,isDeck){
+  const inner=isDeck
+    ?`<div class="pci" style="font-size:.9rem;border-style:dashed">🂠</div>`
+    :top&&top.img
+      ?`<div class="pci" onclick="zoom(${ej(top)})" style="cursor:pointer"><img src="${top.img}"></div>`
+      :`<div class="pci" style="border-style:dashed;font-size:.5rem">${count||'—'}</div>`;
+  return `<div class="pc">${inner}<div class="pcl">${isDeck?'Deck':'Disc.'} ${count}</div></div>`;
+}
+
+/* ── Active cards ───────────────────────────────────────── */
+function rOA(s){document.getElementById('oa').innerHTML=s.opp.active?aCard(s.opp.active,false,false,s):emptyA();}
+function rMA(s){
+  const al=0 in s.legal_attach;
+  document.getElementById('ma').innerHTML=s.my.active?aCard(s.my.active,al,s.is_my_turn,s):emptyA();
+}
+function emptyA(){return `<div class="card ca dim" style="display:flex;align-items:center;justify-content:center;color:var(--bd);font-size:1.2rem">·</div>`;}
+
+function aCard(p,al,isMe,s){
+  const hc=hCol(p.hp_pct);
+  const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
+  const en=enH(p.energy);
+  let atks='';
+  if(s&&isMe&&p.attacks){
+    atks='<div class="atks">'+p.attacks.map((a,ai)=>{
+      const lg=ai in s.legal_attacks;
+      const co=a.cost.map(c=>`<div class="ap" style="background:${EC[c.type]||'#888'}"></div>`).join('');
+      const oc=lg?`onclick="event.stopPropagation();act(${s.legal_attacks[ai]})"`:''
+      return `<div class="ab${lg?' legal':''}" ${oc}><div class="ac">${co}</div><span class="an">${a.name}</span>${a.damage?`<span class="ad">${a.damage}</span>`:''}</div>`;
+    }).join('')+'</div>';
+  }
+  const cls=al&&isMe?'legal':'';
+  const oc=al&&isMe?`onclick="act(${s.legal_attach[0]})"`:''
+  return `<div class="card ca ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(p)})" title="${p.name} · ${p.current_hp}/${p.hp}HP${al?' · Click to attach energy':' · Right-click to zoom'}">
+    ${img}<div class="cn">${p.name}</div><div class="cs">${p.stage}</div>
+    <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
+    <div class="ht">${p.current_hp}/${p.hp} HP</div>
+    <div class="ce">${en}</div>${atks}</div>`;
+}
+
+/* ── Bench cards ────────────────────────────────────────── */
+function rOB(s){
+  const el=document.getElementById('ob');el.innerHTML='';
+  for(let i=0;i<5;i++){const p=s.opp.bench[i];el.innerHTML+=p?bCard(p,false,false,-1,s):'<div class="be">·</div>';}
+}
+function rMB(s){
+  const el=document.getElementById('mb');el.innerHTML='';
+  for(let i=0;i<5;i++){
+    const p=s.my.bench[i];
+    if(p){const al=(i+1) in s.legal_attach;el.innerHTML+=bCard(p,al,s.is_my_turn,i,s);}
+    else el.innerHTML+='<div class="be">·</div>';
+  }
+}
+function bCard(p,al,isMe,bi,s){
+  const hc=hCol(p.hp_pct);
+  const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
+  const en=enH(p.energy);
+  const slot=bi+1;
+  const cls=al&&isMe?'legal':'';
+  const oc=al&&isMe&&s?`onclick="act(${s.legal_attach[slot]})"`:''
+  return `<div class="card cb ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(p)})" title="${p.name} · ${p.current_hp}/${p.hp}HP${al?' · Click to attach':' · Right-click to zoom'}">
+    ${img}<div class="cn">${p.name}</div>
+    <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
+    <div class="ht">${p.current_hp}/${p.hp}</div>
+    <div class="ce">${en}</div></div>`;
+}
+function enH(arr){if(!arr||!arr.length)return '';return arr.map(e=>`<div class="ep" style="background:${e.color}" title="${e.type}">${EL[e.type]||'?'}</div>`.repeat(e.count)).join('');}
+
+/* ── Hand ───────────────────────────────────────────────── */
+function rHand(s){
+  const w=document.getElementById('hcards');
+  document.getElementById('hcnt').textContent=`${s.my.hand.length} cards`;
+  w.innerHTML='';
+  s.my.hand.forEach((c,i)=>{
+    const acts=s.legal_hand[i]||[],lg=acts.length>0,sel=s.selected===i;
+    const cls=lg?'legal':sel?'sel':'';
+    const oc=lg&&s.is_my_turn?`onclick="hClick(${i})"`:''
+    const img=c.img?`<img class="ci" src="${c.img}">`:`<div class="cph">${c.name}</div>`;
+    const tp=c.card_type==='pokemon'?(c.stage||'Pokémon'):c.card_type==='energy'?c.energy_type:c.card_type;
+    const badge=lg&&acts.length>1?`<div class="nb">${acts.length}</div>`:'';
+    w.innerHTML+=`<div class="hc ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(c)})" title="${c.name} · Right-click to zoom">
+      ${img}${badge}<div class="hn">${c.name}</div><div class="ht2">${tp}</div></div>`;
   });
-  state = await res.json();
-  render(state);
-  startPolling();
 }
 
-function showLobby() {
-  stopPolling();
-  document.getElementById('gameover-overlay').classList.remove('open');
-  document.getElementById('lobby').style.display = 'flex';
+function hClick(i){
+  if(!S||!S.is_my_turn)return;
+  const acts=S.legal_hand[i]||[];if(!acts.length)return;
+  if(acts.length===1){act(acts[0].action);return;}
+  showAM(S.my.hand[i].name,acts);
 }
 
-/* ══════════════════════════════════════════════════════════════
-   POLLING  (fast poll while bot is thinking, slow otherwise)
-══════════════════════════════════════════════════════════════ */
-function startPolling() {
-  stopPolling();
-  pollInterval = setInterval(async () => {
-    const res = await fetch('/api/state');
-    const s   = await res.json();
-    if (s.mode !== 'idle') { state = s; render(s); }
-    if (s.mode === 'over')  stopPolling();
-  }, state && state.pending_bot ? 300 : 800);
-}
-
-function stopPolling() {
-  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-}
-
-/* ══════════════════════════════════════════════════════════════
-   SEND ACTION
-══════════════════════════════════════════════════════════════ */
-async function sendAction(actionIdx) {
-  closePopup();
-  const res = await fetch('/api/action', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({action: actionIdx})
+/* ── Action modal ───────────────────────────────────────── */
+function showAM(title,acts){
+  document.getElementById('am-t').textContent=`${title} — choose target`;
+  const l=document.getElementById('am-l');l.innerHTML='';
+  acts.forEach(a=>{
+    const b=document.createElement('button');b.className='mb';b.textContent=dA(a);b.onclick=()=>act(a.action);l.appendChild(b);
   });
-  state = await res.json();
-  render(state);
-  if (state.pending_bot) startPolling();
+  const c=document.createElement('button');c.className='mb cancel';c.textContent='✕ Cancel';c.onclick=closeAM;l.appendChild(c);
+  document.getElementById('am').classList.add('open');
 }
+function closeAM(){document.getElementById('am').classList.remove('open');}
+document.getElementById('am').addEventListener('click',e=>{if(e.target===document.getElementById('am'))closeAM();});
 
-async function skipTurn() {
-  const res = await fetch('/api/skip_turn', { method: 'POST' });
-  state = await res.json();
-  render(state);
-  if (state.pending_bot) startPolling();
-}
-
-/* ══════════════════════════════════════════════════════════════
-   MAIN RENDER
-══════════════════════════════════════════════════════════════ */
-function render(s) {
-  if (!s || s.mode === 'idle') return;
-
-  updateHeader(s);
-  renderOppZone(s);
-  renderMyZone(s);
-  renderOppActive(s);
-  renderOppBench(s);
-  renderMyActive(s);
-  renderMyBench(s);
-  renderHand(s);
-  renderLog(s);
-
-  // Promotion modal
-  if (s.promotion && s.promotion.player_idx === s.human_player) {
-    showPromoModal(s.promotion);
-  } else {
-    document.getElementById('promo-modal').classList.remove('open');
-  }
-
-  // Game over
-  if (s.mode === 'over') {
-    stopPolling();
-    showGameOver(s);
+function dA(a){
+  if(!S)return a.type;
+  switch(a.type){
+    case 'ATTACH_ENERGY':return a.params.slot===0?`Attach to Active (${S.my.active?.name||'?'})`:
+      `Attach to ${S.my.bench[a.params.slot-1]?.name||'bench slot '+(a.params.slot-1)}`;
+    case 'PLAY_POKEMON':return `Bench ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
+    case 'EVOLVE':return `Evolve ${a.params.slot===5?S.my.active?.name:S.my.bench[a.params.slot]?.name||'?'}`;
+    case 'USE_ITEM':return `Use ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
+    case 'USE_SUPPORTER':return `Play ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
+    case 'ATTACK':return `⚔ ${S.my.active?.attacks?.[a.params.atk_idx]?.name||'?'}`;
+    default:return a.type;
   }
 }
 
-/* ── Header ──────────────────────────────────────────────── */
-function updateHeader(s) {
-  const isMyTurn = s.is_my_turn;
-  const turnEl   = document.getElementById('turn-info');
-  const skipBtn  = document.getElementById('skip-btn');
-  const thinking = document.getElementById('thinking-indicator');
-
-  turnEl.textContent = `Turn ${s.turn} · ` + (s.pending_bot ? 'Bot thinking…' :
-    (isMyTurn ? 'Your turn' : 'Bot\'s turn'));
-
-  skipBtn.disabled = !isMyTurn || s.mode === 'over';
-  thinking.style.display = s.pending_bot ? 'inline-flex' : 'none';
+/* ── Promotion ──────────────────────────────────────────── */
+function showPromo(s){
+  const el=document.getElementById('pm-ch');el.innerHTML='';
+  s.promotion.bench.forEach((p,i)=>{
+    const idx=s.legal_promote[i];if(idx===undefined)return;
+    const hc=hCol(p.hp_pct);
+    const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
+    const b=document.createElement('div');b.className='card cb legal';b.style.cursor='pointer';
+    b.innerHTML=`${img}<div class="cn" style="text-align:center">${p.name}</div>
+      <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
+      <div class="ht" style="text-align:center">${p.current_hp}/${p.hp}</div>`;
+    b.onclick=()=>act(idx);el.appendChild(b);
+  });
+  document.getElementById('pm').classList.add('open');
 }
 
-/* ── Opp info row ─────────────────────────────────────────── */
-function renderOppZone(s) {
-  const el = document.getElementById('opp-zone');
-  el.innerHTML = `
-    ${koHtml(s.opp.ko_count, 'Opp KOs')}
-    <div style="flex:1"></div>
-    ${pileHtml(s.opp.deck_size, s.opp.discard_top, 'Deck', 'Discard')}
-    <div style="text-align:center;font-size:0.72rem;color:var(--dim)">
-      Hand<br><strong style="font-size:1rem;color:var(--text)">${s.opp.hand_size}</strong>
-    </div>`;
-}
-
-/* ── My info row ──────────────────────────────────────────── */
-function renderMyZone(s) {
-  const el = document.getElementById('my-zone');
-  const eu = s.energy_used ? '⚡ used' : '⚡ free';
-  const su = s.supporter_used ? '📣 used' : '📣 free';
-  el.innerHTML = `
-    ${koHtml(s.my.ko_count, 'My KOs')}
-    <div style="flex:1"></div>
-    <div style="text-align:center;font-size:0.7rem;color:${s.energy_used ? 'var(--dim)':'var(--green)'}">
-      ${eu}</div>
-    <div style="text-align:center;font-size:0.7rem;color:${s.supporter_used ? 'var(--dim)':'var(--green)'}">
-      ${su}</div>
-    ${pileHtml(s.my.deck_size, s.my.discard_top, 'Deck', 'Discard')}`;
-}
-
-function koHtml(count, label) {
-  let pips = '';
-  for (let i = 0; i < 6; i++)
-    pips += `<div class="ko-pip${i < count ? ' filled':''}"></div>`;
-  return `<div class="ko-box"><div class="ko-label">${label}</div>
-    <div class="ko-pips">${pips}</div>
-    <div style="font-size:0.65rem;color:var(--dim)">${count}/6</div></div>`;
-}
-
-function pileHtml(deckSize, discardTop, deckLabel, discardLabel) {
-  const deckCard = `<div class="pile-card" style="background:var(--surface2)">
-    <span>🂠<br>${deckSize}</span></div>`;
-
-  let discardCard;
-  if (discardTop) {
-    const img = discardTop.img
-      ? `<img src="${discardTop.img}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">`
-      : `<span style="font-size:0.55rem;text-align:center;padding:2px">${discardTop.name}</span>`;
-    discardCard = `<div class="pile-card">${img}</div>`;
-  } else {
-    discardCard = `<div class="pile-card" style="border-style:dashed"><span>empty</span></div>`;
-  }
-
-  return `<div class="pile-box">
-    <div class="zone-label">${deckLabel}</div>${deckCard}
-    <div class="pile-count">${deckSize}</div>
-  </div>
-  <div class="pile-box">
-    <div class="zone-label">${discardLabel}</div>${discardCard}
-  </div>`;
-}
-
-/* ── Opponent active ──────────────────────────────────────── */
-function renderOppActive(s) {
-  const slot = document.getElementById('opp-active-slot');
-  slot.innerHTML = s.opp.active
-    ? pokemonCardLargeHtml(s.opp.active, false, false, false, s)
-    : '<div style="width:110px;height:160px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--border)">No Active</div>';
-}
-
-/* ── Opponent bench ───────────────────────────────────────── */
-function renderOppBench(s) {
-  const row = document.getElementById('opp-bench');
-  row.innerHTML = '';
-  for (let i = 0; i < 5; i++) {
-    const p = s.opp.bench[i];
-    if (p) row.innerHTML += pokemonCardSmallHtml(p, false, false);
-    else   row.innerHTML += '<div class="bench-empty">—</div>';
-  }
-}
-
-/* ── My active ────────────────────────────────────────────── */
-function renderMyActive(s) {
-  const slot = document.getElementById('my-active-slot');
-  if (!s.my.active) {
-    slot.innerHTML = '<div style="width:110px;height:190px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--border)">No Active</div>';
-    return;
-  }
-  const isAttachLegal = (0 in s.legal_attach);  // slot 0 = active
-  slot.innerHTML = pokemonCardLargeHtml(s.my.active, isAttachLegal, true, s.is_my_turn, s);
-}
-
-/* ── My bench ─────────────────────────────────────────────── */
-function renderMyBench(s) {
-  const row = document.getElementById('my-bench');
-  row.innerHTML = '';
-  for (let i = 0; i < 5; i++) {
-    const p = s.my.bench[i];
-    if (p) {
-      const attachLegal = ((i+1) in s.legal_attach);
-      row.innerHTML += pokemonCardSmallHtml(p, attachLegal, s.is_my_turn, i, s);
-    } else {
-      row.innerHTML += '<div class="bench-empty">—</div>';
-    }
-  }
-}
-
-/* ── Large pokemon card (active) ─────────────────────────── */
-function pokemonCardLargeHtml(p, attachLegal, showAttacks, isMyTurn, s) {
-  const hpColor = p.hp_pct > 50 ? 'var(--hp-good)' : p.hp_pct > 25 ? 'var(--hp-mid)' : 'var(--hp-low)';
-  const imgHtml = p.img
-    ? `<img class="pcard-img" src="${p.img}" alt="${p.name}">`
-    : `<div class="pcard-img-placeholder">${p.name}</div>`;
-
-  const energyHtml = p.energy.map(e =>
-    `<div class="energy-pip" style="background:${e.color}" title="${e.type}">${e.type[0]}</div>`
-      .repeat(e.count)
-  ).join('');
-
-  let attacksHtml = '';
-  if (showAttacks && p.attacks) {
-    const btns = p.attacks.map((atk, ai) => {
-      const legal   = ai in s.legal_attacks;
-      const cls     = legal ? 'legal' : '';
-      const onclick = legal && isMyTurn ? `onclick="sendAction(${s.legal_attacks[ai]})"` : '';
-      const costPips = atk.cost.map(c =>
-        `<div class="cost-pip" style="background:${c.color}" title="${c.type}"></div>`).join('');
-      return `<div class="attack-btn ${cls}" ${onclick}>
-        <div class="attack-cost">${costPips}</div>
-        <span class="attack-name">${atk.name}</span>
-        ${atk.damage ? `<span class="attack-dmg">${atk.damage}</span>` : ''}
-      </div>`;
+/* ── Card zoom ──────────────────────────────────────────── */
+function zoom(card){
+  const img=document.getElementById('zm-img');
+  if(card.img){img.src=card.img;img.style.display='block';}else{img.style.display='none';}
+  document.getElementById('zm-name').textContent=card.name||'';
+  let sub='';
+  if(card.card_type==='pokemon')sub=`${card.stage||''} Pokémon`;
+  else if(card.card_type==='energy')sub=`${card.energy_type||''} Energy`;
+  else sub=`${card.card_type||''} — ${FX[card.effect||'']||card.effect||''}`;
+  document.getElementById('zm-sub').textContent=sub;
+  if(card.hp){
+    const hc=hCol(card.hp_pct||100);
+    document.getElementById('zm-hp').innerHTML=`<span style="color:${hc};font-weight:700">${card.current_hp}/${card.hp} HP</span>
+      <div style="margin-top:3px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden">
+        <div style="width:${card.hp_pct||100}%;height:100%;background:${hc};border-radius:2px"></div></div>`;
+  }else{document.getElementById('zm-hp').innerHTML='';}
+  const ee=document.getElementById('zm-en');
+  if(card.energy&&card.energy.length){
+    ee.innerHTML='<span style="font-size:.6rem;color:var(--dim)">Energy: </span>'+
+      card.energy.map(e=>`<div class="ep" style="background:${e.color};width:15px;height:15px;font-size:.46rem">${EL[e.type]||'?'}</div>`.repeat(e.count)).join('');
+  }else{ee.innerHTML='';}
+  const ae=document.getElementById('zm-atks');
+  if(card.attacks&&card.attacks.length){
+    ae.innerHTML=card.attacks.map(a=>{
+      const co=a.cost.map(c=>`<div class="ep" style="background:${EC[c.type]||'#888'};width:14px;height:14px;font-size:.44rem">${EL[c.type]||'?'}</div>`).join('');
+      return `<div class="za"><div class="za-top"><div class="za-co">${co}</div><div class="za-nm">${a.name}</div>${a.damage?`<div class="za-dm">${a.damage}</div>`:''}</div>${a.effect?`<div class="za-fx">${FX[a.effect]||a.effect}</div>`:''}</div>`;
     }).join('');
-    attacksHtml = `<div class="attacks-list">${btns}</div>`;
-  }
+  }else{ae.innerHTML='';}
+  document.getElementById('zm').classList.add('open');
+}
+function czoom(e){if(e&&e.target!==document.getElementById('zm')&&e.target.id!=='zm-close')return;document.getElementById('zm').classList.remove('open');}
 
-  const attachCls  = attachLegal && isMyTurn ? 'legal' : '';
-  const attachClick = attachLegal && isMyTurn
-    ? `onclick="sendAction(${s.legal_attach[0]})"` : '';
-
-  return `<div class="pokemon-card-large ${attachCls}" ${attachClick} title="${attachLegal ? 'Click to attach energy' : ''}">
-    ${imgHtml}
-    <div class="pcard-name">${p.name}</div>
-    <div class="pcard-stage">${p.stage}</div>
-    <div class="hp-bar-wrap">
-      <div class="hp-bar-bg"><div class="hp-bar-fill" style="width:${p.hp_pct}%;background:${hpColor}"></div></div>
-      <div class="hp-text">${p.current_hp}/${p.hp} HP</div>
-    </div>
-    <div class="energy-row">${energyHtml}</div>
-    ${attacksHtml}
-  </div>`;
+/* ── Log ────────────────────────────────────────────────── */
+function rLog(s){
+  const el=document.getElementById('log');
+  el.innerHTML=s.log.map(m=>{
+    const cls=m.startsWith('Bot')?'bot':m.startsWith('You')?'me':(m.startsWith('---')||m.startsWith('New'))?'ev':'';
+    return `<p class="${cls}">${esc(m)}</p>`;
+  }).join('');
+  el.scrollTop=el.scrollHeight;
 }
 
-/* ── Small pokemon card (bench) ──────────────────────────── */
-function pokemonCardSmallHtml(p, attachLegal, isMyTurn, benchIdx, s) {
-  const hpColor = p.hp_pct > 50 ? 'var(--hp-good)' : p.hp_pct > 25 ? 'var(--hp-mid)' : 'var(--hp-low)';
-  const imgHtml = p.img
-    ? `<img class="pcard-small-img" src="${p.img}" alt="${p.name}">`
-    : `<div class="pcard-small-img-ph">${p.name}</div>`;
-
-  const energyHtml = p.energy.map(e =>
-    `<div class="energy-pip" style="background:${e.color};width:11px;height:11px" title="${e.type}">${e.type[0]}</div>`
-      .repeat(e.count)
-  ).join('');
-
-  const slot  = benchIdx + 1;  // bench slot 1-5
-  const cls   = attachLegal && isMyTurn ? 'legal' : '';
-  const click = attachLegal && isMyTurn && s
-    ? `onclick="sendAction(${s.legal_attach[slot]})"` : '';
-
-  return `<div class="pokemon-card-small ${cls}" ${click}
-      title="${p.name} · ${p.current_hp}/${p.hp} HP${attachLegal ? ' · Click to attach energy' : ''}">
-    ${imgHtml}
-    <div class="pcard-name" style="font-size:0.62rem">${p.name}</div>
-    <div class="hp-bar-wrap">
-      <div class="hp-bar-bg"><div class="hp-bar-fill" style="width:${p.hp_pct}%;background:${hpColor}"></div></div>
-    </div>
-    <div style="font-size:0.58rem;color:var(--dim)">${p.current_hp}/${p.hp}</div>
-    <div class="energy-row">${energyHtml}</div>
-  </div>`;
+/* ── Game over ──────────────────────────────────────────── */
+function showGO(s){
+  const msg=document.getElementById('go-msg'),sub=document.getElementById('go-sub');
+  if(s.winner===s.human_player){msg.textContent='🎉 You Win!';msg.style.color='var(--gr)';}
+  else if(s.winner===-1){msg.textContent='Draw';msg.style.color='var(--yl)';}
+  else{msg.textContent='Bot Wins!';msg.style.color='var(--rd)';}
+  sub.textContent={ko:'by KO',deckout:'by deck-out',timeout:'time limit','':''}[s.win_reason]||'';
+  document.getElementById('gom').classList.add('open');
 }
 
-/* ── Hand ─────────────────────────────────────────────────── */
-function renderHand(s) {
-  const container = document.getElementById('hand-cards');
-  container.innerHTML = '';
-
-  s.my.hand.forEach((card, i) => {
-    const legalActions = s.legal_hand[i] || [];
-    const isLegal      = legalActions.length > 0;
-    const isSelected   = s.selected === i;
-    const cls = [isLegal ? 'legal' : '', isSelected ? 'selected' : ''].join(' ');
-
-    const imgHtml = card.img
-      ? `<img class="hand-card-img" src="${card.img}" alt="${card.name}">`
-      : `<div class="hand-card-img-ph">${card.name}</div>`;
-
-    const typeLabel = card.card_type === 'pokemon'
-      ? (card.stage || 'Pokémon')
-      : card.card_type === 'energy'
-        ? (card.energy_type + ' Energy')
-        : card.card_type;
-
-    // Badge showing number of distinct targets if > 1
-    const badge = isLegal && legalActions.length > 1
-      ? `<div class="hand-card-badge">${legalActions.length}</div>` : '';
-
-    const onclick = isLegal && s.is_my_turn
-      ? `onclick="handleHandClick(${i})"` : '';
-
-    container.innerHTML += `<div class="hand-card ${cls}" ${onclick} title="${card.name}">
-      ${imgHtml}
-      ${badge}
-      <div class="hand-card-name">${card.name}</div>
-      <div class="hand-card-type">${typeLabel}</div>
-    </div>`;
-  });
-}
-
-/* ── Hand card click logic ────────────────────────────────── */
-function handleHandClick(handIdx) {
-  if (!state || !state.is_my_turn) return;
-  const actions = state.legal_hand[handIdx] || [];
-  if (actions.length === 0) return;
-
-  if (actions.length === 1) {
-    // Single unambiguous action — just send it
-    sendAction(actions[0].action);
-    return;
-  }
-
-  // Multiple possible targets — show popup
-  const card = state.my.hand[handIdx];
-  showActionPopup(card.name, actions);
-}
-
-/* ── Action popup ─────────────────────────────────────────── */
-function showActionPopup(cardName, actions) {
-  const popup   = document.getElementById('action-popup');
-  const title   = document.getElementById('popup-title');
-  const actionsEl = document.getElementById('popup-actions');
-
-  title.textContent = `${cardName} — choose target`;
-  actionsEl.innerHTML = '';
-
-  actions.forEach(a => {
-    const label = describeAction(a);
-    const btn = document.createElement('button');
-    btn.className = 'popup-btn';
-    btn.textContent = label;
-    btn.onclick = () => sendAction(a.action);
-    actionsEl.appendChild(btn);
-  });
-
-  const cancel = document.createElement('button');
-  cancel.className = 'popup-btn cancel';
-  cancel.textContent = '✕ Cancel';
-  cancel.onclick = closePopup;
-  actionsEl.appendChild(cancel);
-
-  popup.classList.add('open');
-}
-
-function closePopup() {
-  document.getElementById('action-popup').classList.remove('open');
-}
-
-function describeAction(a) {
-  if (!state) return a.type;
-  const s = state;
-  switch (a.type) {
-    case 'ATTACH_ENERGY': {
-      const slot = a.params.slot;
-      if (slot === 0) return `Attach to Active (${s.my.active ? s.my.active.name : '?'})`;
-      const p = s.my.bench[slot - 1];
-      return `Attach to ${p ? p.name : 'bench slot ' + (slot-1)}`;
-    }
-    case 'PLAY_POKEMON': return `Bench ${s.my.hand[a.params.hand_idx]?.name || '?'}`;
-    case 'EVOLVE': {
-      const slot = a.params.slot;
-      const tgt  = slot === 5 ? s.my.active?.name : s.my.bench[slot]?.name;
-      return `Evolve ${tgt || '?'}`;
-    }
-    case 'USE_ITEM':      return `Use ${s.my.hand[a.params.hand_idx]?.name || '?'}`;
-    case 'USE_SUPPORTER': return `Play ${s.my.hand[a.params.hand_idx]?.name || '?'}`;
-    case 'ATTACK':        return `Attack: ${s.my.active?.attacks?.[a.params.atk_idx]?.name || '?'}`;
-    default: return a.type;
-  }
-}
-
-/* ── Promotion modal ──────────────────────────────────────── */
-function showPromoModal(promo) {
-  const modal   = document.getElementById('promo-modal');
-  const choices = document.getElementById('promo-choices');
-  choices.innerHTML = '';
-
-  promo.bench.forEach((p, i) => {
-    const actionIdx = state.legal_promote[i];
-    if (actionIdx === undefined) return;
-
-    const hpColor = p.hp_pct > 50 ? 'var(--hp-good)' : p.hp_pct > 25 ? 'var(--hp-mid)' : 'var(--hp-low)';
-    const imgHtml = p.img
-      ? `<img style="width:70px;height:50px;object-fit:cover;border-radius:4px;display:block;margin:0 auto 4px"
-             src="${p.img}" alt="${p.name}">`
-      : `<div style="width:70px;height:50px;background:var(--surface2);border-radius:4px;
-              display:flex;align-items:center;justify-content:center;font-size:0.6rem;
-              color:var(--dim);margin:0 auto 4px">${p.name}</div>`;
-
-    const btn = document.createElement('div');
-    btn.className = 'pokemon-card-small legal';
-    btn.style.cssText = 'cursor:pointer;width:90px';
-    btn.innerHTML = `${imgHtml}
-      <div style="font-size:0.65rem;font-weight:600;text-align:center">${p.name}</div>
-      <div style="font-size:0.6rem;color:${hpColor};text-align:center">${p.current_hp}/${p.hp} HP</div>`;
-    btn.onclick = () => sendAction(actionIdx);
-    choices.appendChild(btn);
-  });
-
-  modal.classList.add('open');
-}
-
-/* ── Log ──────────────────────────────────────────────────── */
-function renderLog(s) {
-  const el = document.getElementById('log');
-  el.innerHTML = s.log.map(msg => `<p>${escHtml(msg)}</p>`).join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-/* ── Game over ────────────────────────────────────────────── */
-function showGameOver(s) {
-  const overlay = document.getElementById('gameover-overlay');
-  const msg     = document.getElementById('gameover-msg');
-  const sub     = document.getElementById('gameover-sub');
-
-  if (s.winner === s.human_player) {
-    msg.textContent = '🎉 You Win!';
-    msg.style.color = 'var(--green)';
-  } else if (s.winner === -1) {
-    msg.textContent = 'Draw';
-    msg.style.color = 'var(--yellow)';
-  } else {
-    msg.textContent = 'Bot Wins!';
-    msg.style.color = 'var(--red)';
-  }
-
-  const reasonMap = {ko:'by KO', deckout:'by deck-out', timeout:'timeout', '':'game over'};
-  sub.textContent = reasonMap[s.win_reason] || '';
-  overlay.classList.add('open');
-}
-
-/* ── Utils ────────────────────────────────────────────────── */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// Close popup on backdrop click
-document.getElementById('action-popup').addEventListener('click', function(e) {
-  if (e.target === this) closePopup();
-});
+/* ── Helpers ────────────────────────────────────────────── */
+function hCol(p){return p>50?'var(--gr)':p>25?'var(--yl)':'var(--rd)';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function ej(o){return JSON.stringify(o).replace(/"/g,'&quot;');}
 </script>
 </body>
 </html>

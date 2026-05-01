@@ -199,6 +199,30 @@ def build_state_json() -> dict:
                 legal_hand[hi] = []
             legal_hand[hi].append({"action": action_idx, "type": atype.name, "params": params})
 
+    # Energy cards: map them to ATTACH_ENERGY actions by finding the first energy
+    # card in hand and registering all attach slots against it (and any duplicates)
+    energy_hand_indices = [
+        i for i, c in enumerate(me.hand) if isinstance(c, EnergyCard)
+    ]
+    attach_actions = [
+        {"action": action_idx, "type": "ATTACH_ENERGY", "params": params}
+        for action_idx in legal
+        for atype, params in [ActionMapper.decode(action_idx)]
+        if atype == ActionType.ATTACH_ENERGY
+    ]
+    if attach_actions and energy_hand_indices:
+        # Only the FIRST energy card in hand will actually be consumed;
+        # map all attach targets to the first energy card index so it's clickable.
+        first_energy = energy_hand_indices[0]
+        if first_energy not in legal_hand:
+            legal_hand[first_energy] = []
+        # Avoid duplicates (already added via hand_idx path, though attach doesn't use hand_idx)
+        existing_types = {a["type"] for a in legal_hand[first_energy]}
+        for a in attach_actions:
+            if "ATTACH_ENERGY" not in existing_types:
+                legal_hand[first_energy].append(a)
+                existing_types.add("ATTACH_ENERGY")
+
     # Legal attack indices
     legal_attacks = {}
     for action_idx in legal:
@@ -288,14 +312,26 @@ def _bot_act(env: PokemonTCGEnv, bot_agent, bot_player: int) -> int:
 
 
 def _run_bot_turn():
-    """Run the bot's full turn in a background thread with delays."""
-    time.sleep(0.5)  # initial pause so human can see the board
+    """Run the bot's full turn in a background thread with natural per-action delays."""
+    time.sleep(0.6)  # initial pause so human can see the board
 
     g   = _game
     env = g["env"]
     bot = g["bot"]
     bot_player = g["bot_player"]
     gs  = env.gs
+
+    # Natural delays per action type (seconds)
+    ACTION_DELAYS = {
+        ActionType.ATTACK:       0.7,   # attacking feels significant
+        ActionType.END_TURN:     0.3,
+        ActionType.EVOLVE:       0.5,   # evolution is a moment
+        ActionType.ATTACH_ENERGY:0.35,
+        ActionType.PLAY_POKEMON: 0.35,
+        ActionType.USE_SUPPORTER:0.45,  # Hau drawing 3 cards — slight pause
+        ActionType.USE_ITEM:     0.35,
+        ActionType.PROMOTE:      0.4,
+    }
 
     while (not gs.game_over
            and gs.current_player == bot_player
@@ -304,15 +340,16 @@ def _run_bot_turn():
         action = _bot_act(env, bot, bot_player)
         atype, params = ActionMapper.decode(action)
 
-        # Build log message
+        # Log before executing so human sees it appear then the board updates
         msg = _action_to_log(action, gs, bot_player, prefix="Bot")
         with _lock:
             g["log"].append(msg)
 
         env.step(action)
-        time.sleep(0.45)  # pause between bot actions so they're readable
 
-        # After an attack or end_turn, the turn switches — stop
+        delay = ACTION_DELAYS.get(atype, 0.35)
+        time.sleep(delay)
+
         if atype in (ActionType.ATTACK, ActionType.END_TURN):
             break
         if gs.game_over:
