@@ -1,6 +1,6 @@
 {
   "ppo": {
-    "champion_winrate": 0.8993,
+    "champion_winrate": 0.9012,
     "history": [
       {
         "timestamp": "2026-04-30 01:13",
@@ -43,13 +43,22 @@
         "deckout_wins": 3148,
         "episodes": 200000,
         "champion": true
+      },
+      {
+        "timestamp": "2026-05-01 00:11",
+        "winrate": 0.9012,
+        "score": 36992.0,
+        "ko_wins": 6995,
+        "deckout_wins": 2017,
+        "episodes": 50000,
+        "champion": true
       }
     ],
-    "total_episodes": 480000,
-    "champion_score": 32373.0
+    "total_episodes": 530000,
+    "champion_score": 36992.0
   },
   "dqn": {
-    "champion_winrate": 0.7008,
+    "champion_winrate": 0.7562,
     "history": [
       {
         "timestamp": "2026-04-30 01:13",
@@ -92,9 +101,18 @@
         "deckout_wins": 2025,
         "episodes": 200000,
         "champion": true
+      },
+      {
+        "timestamp": "2026-05-01 00:12",
+        "winrate": 0.7562,
+        "score": 30262.0,
+        "ko_wins": 5675,
+        "deckout_wins": 1887,
+        "episodes": 50000,
+        "champion": true
       }
     ],
-    "total_episodes": 480000,
-    "champion_score": 26940.0
+    "total_episodes": 530000,
+    "champion_score": 30262.0
   }
 }

@@ -240,12 +240,19 @@ class ActorCritic:
         d_feat_c = (d_val[:, None] * self.critic.W.T).astype(np.float32)   # [B, H]
 
         # Actor: PPO-clip gradient
-        clipped  = np.clip(ratios, 1-clip_eps, 1+clip_eps)
-        use_clip = (ratios > clipped) | (ratios < clipped - 0.0)  # where ratio was clipped
-        # Gradient of min(r*A, clip(r)*A) w.r.t. log_pa:
-        # = A * r * I(not clipped) / B  (simplified)
-        not_clipped = ~(np.abs(ratios - clipped) < 1e-7)
-        coeff    = advantages * ratios * not_clipped / B                   # [B]
+        # Standard PPO: L = -E[min(r*A, clip(r,1-ε,1+ε)*A)]
+        # Gradient flows iff the unclipped term r*A is the one selected by min()
+        # AND the gradient direction would push r outside the clip range.
+        # Equivalently: stop gradient when (A>0 AND r>1+ε) OR (A<0 AND r<1-ε).
+        #
+        # Why: when clipped term wins, clip(r) is a constant w.r.t. policy params,
+        # so its gradient is zero — but only when ratio is firmly outside the
+        # clip region. Inside the clip region, both branches give the same value
+        # so we use the unclipped gradient.
+        clipped_high   = (advantages > 0) & (ratios > 1.0 + clip_eps)
+        clipped_low    = (advantages < 0) & (ratios < 1.0 - clip_eps)
+        gradient_flows = ~(clipped_high | clipped_low)                     # [B]
+        coeff    = advantages * ratios * gradient_flows / B                # [B]
         d_log_pa = -coeff                                                  # [B]
 
         # Gradient through softmax
@@ -606,12 +613,15 @@ class SelfPlayEnv:
                 shape -= 0.15                           # punish leaving damage on table
 
         elif atype == AT.ATTACH_ENERGY:
-            if energy_target_pokemon and not energy_target_pokemon.attacks:
-                shape -= 0.02                           # attaching to useless pokemon
-            elif energy_matches_attack:
-                shape += 0.20                           # typed energy on right attacker
+            # Over-attaching to a saturated Pokémon is now blocked by the
+            # legal mask, so we don't need to penalise it here. We do still
+            # reward typed matches more than generic attaches, since this
+            # encourages the agent to send Fighting energies to its Fighting
+            # Pokémon instead of dumping them on basic-attack benchmons.
+            if energy_matches_attack:
+                shape += 0.20
             else:
-                shape += 0.05                           # colourless / generic energy
+                shape += 0.05
 
         elif atype == AT.EVOLVE:
             if evolve_stage is not None:
@@ -704,9 +714,6 @@ class PPOAgent:
             deterministic: bool = False) -> Tuple[int, float, float]:
         """Sample action. Returns (action, log_prob, value)."""
         logits, value = self.net.forward(obs)
-        # Add small noise to logits to prevent collapse (exploration floor)
-        if not deterministic:
-            logits = logits + self.rng.standard_normal(logits.shape).astype(np.float32) * 0.1
         masked_logits = logits + (mask - 1) * 1e9
         probs = softmax(masked_logits)
 
@@ -715,9 +722,11 @@ class PPOAgent:
         else:
             legal = np.where(mask > 0)[0]
             legal_probs = probs[legal]
-            # Entropy floor: blend with uniform over legal actions (temperature)
+            # Small uniform blend prevents pathological policy collapse early
+            # in training without crushing the agent's ability to commit to
+            # a sharp policy after BC pretraining.
             uniform = np.ones(len(legal)) / len(legal)
-            legal_probs = 0.85 * legal_probs + 0.15 * uniform
+            legal_probs = 0.95 * legal_probs + 0.05 * uniform
             legal_probs = legal_probs / legal_probs.sum()
             action = int(self.rng.choice(legal, p=legal_probs))
 

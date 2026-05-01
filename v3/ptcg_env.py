@@ -559,14 +559,25 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
     mask[ActionMapper.END_TURN_IDX] = 1.0
 
     # --- ATTACH_ENERGY ---
+    # Only allow attaching to Pokémon that still need more energy for at least
+    # one of their attacks. A Pokémon that can already pay every one of its
+    # attacks does not benefit from more energy — attaching there wastes the
+    # turn's single energy attachment.
     has_energy_in_hand = any(isinstance(c, EnergyCard) for c in me.hand)
     if has_energy_in_hand and not me.energy_used:
+        def _needs_more_energy(p: PokemonCard) -> bool:
+            """True if p has at least one attack it cannot yet afford."""
+            if p is None or not p.attacks:
+                return False
+            return any(not can_pay_cost(p, atk.energy_cost) for atk in p.attacks)
+
         # Attach to active
-        if me.active is not None:
+        if me.active is not None and _needs_more_energy(me.active):
             mask[ActionMapper.ATTACH_START] = 1.0
-        # Attach to bench slots
+        # Attach to bench
         for i, p in enumerate(me.bench):
-            mask[ActionMapper.ATTACH_START + 1 + i] = 1.0
+            if _needs_more_energy(p):
+                mask[ActionMapper.ATTACH_START + 1 + i] = 1.0
 
     # --- PLAY_POKEMON (bench) ---
     if len(me.bench) < MAX_BENCH:
