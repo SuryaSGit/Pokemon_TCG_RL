@@ -4,554 +4,1640 @@
 <meta charset="UTF-8">
 <title>Pokémon TCG</title>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0f1120;--s1:#181b2e;--s2:#1f2340;--s3:#272c50;
-  --bd:#363b60;--bd2:#484f7a;
-  --tx:#dde0f5;--dim:#6870a0;--dimmer:#40456a;
-  --gr:#38c87a;--rd:#e05060;--yl:#f0c030;--bl:#4a8de0;
-  --glw:rgba(56,200,122,0.5);--gbg:rgba(56,200,122,0.12);--gbd:rgba(56,200,122,0.8);
+/* ════════════════════════════════════════════════════════════════
+   RESET + TOKENS
+═════════════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+img { display: block; }
+
+:root {
+  --bg:        #0e1020;
+  --surf-1:    #181b2e;
+  --surf-2:    #21253f;
+  --surf-3:    #2c314f;
+  --border:    #383d62;
+  --border-2:  #4a5180;
+  --text:      #e0e3f5;
+  --dim:       #8990b8;
+  --dimmer:    #555a82;
+  --green:     #3dc885;
+  --red:       #e0606e;
+  --yellow:    #f0c038;
+  --blue:      #5090e0;
+  --purple:    #a878e8;
+  --legal-bg:  rgba(61, 200, 133, 0.14);
+  --legal-bd:  rgba(61, 200, 133, 0.85);
+  --legal-gw:  rgba(61, 200, 133, 0.45);
+  --target-bg: rgba(168, 120, 232, 0.18);
+  --target-bd: rgba(168, 120, 232, 0.95);
+  --target-gw: rgba(168, 120, 232, 0.6);
+  --active-w:  118px;
+  --bench-w:   86px;
+  --hand-w:    80px;
 }
-html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:13px;overflow:hidden}
-#app{display:flex;flex-direction:column;height:100vh}
 
-/* ═ TOPBAR ══════════════════════════════════════════════ */
-#bar{
-  display:flex;align-items:center;gap:10px;padding:5px 12px;
-  background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0;
+html, body {
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
 }
-#bar h1{font-size:0.88rem;font-weight:700;color:var(--yl);letter-spacing:1px}
-#tb{padding:2px 9px;border-radius:20px;font-size:0.7rem;font-weight:600;background:var(--s2);border:1px solid var(--bd2);color:var(--dim);transition:all .25s}
-#tb.my{background:rgba(56,200,122,.15);border-color:var(--gr);color:var(--gr)}
-#tb.bot{background:rgba(74,141,224,.15);border-color:var(--bl);color:var(--bl)}
-.sp{flex:1}
-.dots{display:none;align-items:center;gap:3px;font-size:0.68rem;color:var(--bl)}
-.dots.on{display:flex}
-.dots i{width:5px;height:5px;border-radius:50%;background:var(--bl);animation:pu 1s infinite}
-.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
-@keyframes pu{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
-.btn{padding:4px 11px;border-radius:5px;border:1px solid var(--bd);background:var(--s2);color:var(--tx);cursor:pointer;font-size:0.76rem;font-weight:600;transition:background .12s,border-color .12s}
-.btn:hover{background:var(--s3);border-color:var(--bd2)}
-.btn.y{border-color:var(--yl);color:var(--yl)}.btn.y:hover{background:rgba(240,192,48,.12)}
-.btn.y:disabled{opacity:.3;cursor:not-allowed}
-.btn.r{border-color:var(--rd);color:var(--rd)}.btn.r:hover{background:rgba(224,80,96,.1)}
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-2); }
 
-/* ═ MAIN ════════════════════════════════════════════════ */
-#main{display:flex;flex:1;overflow:hidden}
-#board{flex:1;display:flex;flex-direction:column;padding:6px 8px;gap:5px;overflow:hidden;min-width:0}
-#sidebar{width:200px;display:flex;flex-direction:column;background:var(--s1);border-left:1px solid var(--bd);flex-shrink:0}
-#lhdr{padding:5px 8px;font-size:0.58rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dimmer);border-bottom:1px solid var(--bd)}
-#log{flex:1;overflow-y:auto;padding:5px 7px;font-size:0.68rem;line-height:1.6}
-#log p{padding:1px 0;border-bottom:1px solid rgba(255,255,255,.03);color:var(--dim)}
-#log p:last-child{color:var(--tx)}
-#log p.bot{color:#6aaaf0}
-#log p.me{color:var(--gr)}
-#log p.ev{color:var(--yl)}
+/* ════════════════════════════════════════════════════════════════
+   LAYOUT
+═════════════════════════════════════════════════════════════════ */
+#app  { display: flex; flex-direction: column; height: 100vh; }
+#main { display: flex; flex: 1; overflow: hidden; }
 
-/* ═ STAT BARS ═══════════════════════════════════════════ */
-.sbar{display:flex;align-items:center;gap:8px;background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:4px 9px;flex-shrink:0;flex-wrap:wrap}
-.kot{display:flex;gap:3px}
-.kp{width:9px;height:9px;border-radius:50%;border:1px solid var(--bd);background:var(--s3);transition:background .25s}
-.kp.on{background:var(--yl);border-color:#b89000}
-.sl{font-size:0.56rem;color:var(--dimmer);text-transform:uppercase;letter-spacing:.5px}
-.sv{font-size:0.82rem;font-weight:700}
-.fl{font-size:0.58rem;padding:1px 6px;border-radius:10px;border:1px solid var(--bd);color:var(--dimmer)}
-.fl.on{border-color:var(--gr);color:var(--gr);background:rgba(56,200,122,.1)}
-.fl.off{opacity:.3}
-.pc{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
-.pci{width:34px;height:47px;border-radius:4px;border:1px solid var(--bd);background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:0.9rem;overflow:hidden;color:var(--dimmer)}
-.pci img{width:100%;height:100%;object-fit:cover}
-.pcl{font-size:0.5rem;color:var(--dimmer)}
-
-/* ═ ARENA ═══════════════════════════════════════════════ */
-#arena{
-  display:flex;align-items:center;gap:8px;flex:1;overflow:hidden;
-  background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:6px 10px;
-  min-height:0;
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px;
+  background: var(--surf-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-/* Each half: active in middle flanked by bench */
-.half{display:flex;align-items:center;gap:6px;flex:1;min-width:0;justify-content:center}
-.half.opp{flex-direction:row-reverse}
-.zone{display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0}
-.zlbl{font-size:0.54rem;text-transform:uppercase;letter-spacing:.5px;color:var(--dimmer);font-weight:700}
-.adiv{width:1px;align-self:stretch;background:var(--bd);flex-shrink:0;margin:0 2px}
-.brow{display:flex;gap:4px;align-items:center}
-
-/* ═ CARD BASE ════════════════════════════════════════════ */
-/* No transform on hover — prevents jitter. Use box-shadow + border only. */
-.card{
-  border-radius:7px;border:2px solid var(--bd);background:var(--s2);
-  cursor:pointer;transition:border-color .15s,box-shadow .15s;
-  position:relative;overflow:hidden;flex-shrink:0;
+#topbar h1 {
+  font-size: 1rem; font-weight: 700;
+  color: var(--yellow); letter-spacing: 1px;
 }
-.card:hover{border-color:var(--bd2);box-shadow:0 0 6px rgba(255,255,255,.08)}
-.card.legal{border-color:var(--gbd)!important;background:var(--gbg)!important;box-shadow:0 0 10px var(--glw)}
-.card.legal:hover{box-shadow:0 0 16px var(--glw)}
-.card.dim{opacity:.4;cursor:default}.card.dim:hover{border-color:var(--bd);box-shadow:none}
+.spacer { flex: 1; }
 
-/* Active card — tall enough to show full image: 100×160 */
-.ca{width:100px}
-.ca .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block}
-.ca .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.55rem;color:var(--dimmer);background:var(--s3)}
-.ca .cn{font-size:0.64rem;font-weight:700;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ca .cs{font-size:0.5rem;color:var(--dimmer);padding:0 4px 1px}
-.ca .hbw{margin:2px 4px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
-.ca .hbf{height:100%;border-radius:2px;transition:width .3s}
-.ca .ht{font-size:0.5rem;color:var(--dim);padding:0 4px 1px}
-.ca .ce{display:flex;flex-wrap:wrap;gap:2px;padding:1px 4px}
-.ca .atks{display:flex;flex-direction:column;gap:2px;padding:2px 4px}
-.ca .ab{background:var(--s3);border:1px solid var(--bd);border-radius:3px;padding:2px 3px;font-size:0.54rem;cursor:pointer;transition:border-color .1s,background .1s;text-align:left}
-.ca .ab.legal{border-color:var(--gbd);color:var(--tx);background:var(--gbg)}
-.ca .ab.legal:hover{background:rgba(56,200,122,.25)}
-.ca .ab:not(.legal){opacity:.35;cursor:not-allowed}
-.ca .an{font-weight:700}.ca .ad{color:var(--yl);font-weight:700;margin-left:3px}
-.ca .ac{display:flex;gap:2px;margin-bottom:1px}
-.ca .ap{width:7px;height:7px;border-radius:50%;border:1px solid rgba(255,255,255,.1)}
+.turn-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.74rem; font-weight: 600;
+  background: var(--surf-2);
+  border: 1px solid var(--border-2);
+  color: var(--dim);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.turn-badge.my  { background: rgba(61,200,133,0.13); border-color: var(--green); color: var(--green); }
+.turn-badge.bot { background: rgba(80,144,224,0.13); border-color: var(--blue);  color: var(--blue);  }
 
-/* Bench card — narrower: 72px wide */
-.cb{width:72px}
-.cb .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block}
-.cb .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.5rem;color:var(--dimmer);background:var(--s3)}
-.cb .cn{font-size:0.58rem;font-weight:700;padding:1px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cb .hbw{margin:1px 3px;height:3px;background:var(--s3);border-radius:2px;overflow:hidden}
-.cb .hbf{height:100%;border-radius:2px;transition:width .3s}
-.cb .ht{font-size:0.48rem;color:var(--dim);padding:0 3px 1px}
-.cb .ce{display:flex;flex-wrap:wrap;gap:2px;padding:1px 3px 2px}
+.dots {
+  display: none; align-items: center; gap: 4px;
+  font-size: 0.74rem; color: var(--blue);
+}
+.dots.on { display: flex; }
+.dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--blue);
+  animation: pulse 1s infinite;
+}
+.dots span:nth-child(2) { animation-delay: 0.15s; }
+.dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+  40%           { opacity: 1;    transform: scale(1);   }
+}
 
-/* Empty bench slot */
-.be{width:72px;border-radius:6px;border:1px dashed var(--bd);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--bd);flex-shrink:0;aspect-ratio:5/7}
+/* Buttons */
+.btn {
+  padding: 6px 13px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surf-2);
+  color: var(--text);
+  font-size: 0.78rem; font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover    { background: var(--surf-3); border-color: var(--border-2); }
+.btn:disabled { opacity: 0.32; cursor: not-allowed; }
+.btn.primary  { border-color: var(--yellow); color: var(--yellow); }
+.btn.primary:hover:not(:disabled) { background: rgba(240,192,56,0.13); }
+.btn.danger   { border-color: var(--red); color: var(--red); }
+.btn.danger:hover { background: rgba(224,96,110,0.12); }
+
+#board {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  padding: 8px 10px; gap: 7px;
+  overflow: hidden;
+}
+#sidebar {
+  width: 220px;
+  display: flex; flex-direction: column;
+  background: var(--surf-1);
+  border-left: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Target-mode banner */
+#target-banner {
+  display: none;
+  padding: 7px 14px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 0.78rem; font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+}
+#target-banner.on { display: block; }
+#target-banner:hover { background: #b88aee; }
+#target-banner kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  background: rgba(0,0,0,0.25);
+  border-radius: 3px;
+}
+
+/* Sidebar log */
+#log-hdr {
+  padding: 8px 12px;
+  font-size: 0.66rem; font-weight: 700;
+  color: var(--dimmer);
+  text-transform: uppercase; letter-spacing: 1px;
+  border-bottom: 1px solid var(--border);
+}
+#log {
+  flex: 1; overflow-y: auto;
+  padding: 7px 10px;
+  font-size: 0.76rem; line-height: 1.55;
+}
+#log p {
+  padding: 2px 0;
+  color: var(--dim);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+#log p:last-child { color: var(--text); }
+#log p.bot { color: #6aaaf0; }
+#log p.me  { color: var(--green); }
+#log p.ev  { color: var(--yellow); }
+
+/* ════════════════════════════════════════════════════════════════
+   STAT BARS
+═════════════════════════════════════════════════════════════════ */
+.statbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px;
+  background: var(--surf-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.statbar .label {
+  font-size: 0.62rem; color: var(--dimmer);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.statbar .val { font-size: 0.86rem; font-weight: 700; }
+
+.ko-track { display: flex; gap: 3px; }
+.ko-pip {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surf-3);
+  transition: background 0.2s;
+}
+.ko-pip.on { background: var(--yellow); border-color: #b89000; }
+
+.flag {
+  font-size: 0.66rem;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--dimmer);
+}
+.flag.on  { border-color: var(--green); color: var(--green); background: rgba(61,200,133,0.1); }
+.flag.off { opacity: 0.32; }
+
+/* Pile button (deck/discard) */
+.pile {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 0;
+}
+.pile-card {
+  width: 38px; height: 53px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surf-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem;
+  color: var(--dimmer);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pile-card img { width: 100%; height: 100%; object-fit: cover; }
+.pile-card.dashed { border-style: dashed; font-size: 0.55rem; }
+.pile:not(:disabled):hover .pile-card { border-color: var(--border-2); box-shadow: 0 0 7px rgba(255,255,255,0.1); }
+.pile-label { font-size: 0.56rem; color: var(--dimmer); }
+
+/* ════════════════════════════════════════════════════════════════
+   ARENA
+═════════════════════════════════════════════════════════════════ */
+#arena {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: var(--surf-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.arena-half {
+  display: flex; align-items: center; gap: 12px;
+  flex: 1; min-width: 0;
+  justify-content: center;
+}
+.arena-half.opp { flex-direction: row-reverse; }
+
+.arena-zone {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 5px;
+  flex-shrink: 0;
+}
+.zone-label {
+  font-size: 0.6rem; font-weight: 700;
+  color: var(--dimmer);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.zone-label.opp  { color: #cc7878; }
+.zone-label.mine { color: #78cc8c; }
+
+.bench-row { display: flex; gap: 5px; align-items: center; }
+
+.arena-divider {
+  width: 2px; align-self: stretch;
+  background: var(--border-2);
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   CARD BASE
+═════════════════════════════════════════════════════════════════ */
+.card {
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--surf-2);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  /* No transform on hover to prevent jitter */
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card:hover { border-color: var(--border-2); box-shadow: 0 0 8px rgba(255,255,255,0.08); }
+.card.legal {
+  border-color: var(--legal-bd) !important;
+  background: var(--legal-bg) !important;
+  box-shadow: 0 0 12px var(--legal-gw);
+}
+.card.legal:hover { box-shadow: 0 0 18px var(--legal-gw); }
+.card.target {
+  border-color: var(--target-bd) !important;
+  background: var(--target-bg) !important;
+  box-shadow: 0 0 14px var(--target-gw);
+  animation: tgt-pulse 1.5s ease-in-out infinite;
+}
+.card.target:hover { box-shadow: 0 0 22px var(--target-gw); }
+@keyframes tgt-pulse {
+  0%,100% { box-shadow: 0 0 14px var(--target-gw); }
+  50%     { box-shadow: 0 0 24px var(--target-gw); }
+}
+
+/* Active card */
+.card.active { width: var(--active-w); }
+.card.active .card-img,
+.card.active .card-img-ph {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  object-fit: cover;
+  background: var(--surf-3);
+}
+.card.active .card-img-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.62rem; color: var(--dimmer);
+  text-align: center; padding: 6px;
+}
+.card.active .card-name {
+  font-size: 0.74rem; font-weight: 700;
+  padding: 3px 5px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card.active .card-stage {
+  font-size: 0.56rem; color: var(--dim);
+  padding: 0 5px 2px;
+}
+.card.active .hp-bar {
+  margin: 2px 5px;
+  height: 5px; border-radius: 3px;
+  background: var(--surf-3);
+  overflow: hidden;
+}
+.card.active .hp-fill {
+  height: 100%; border-radius: 3px;
+  transition: width 0.4s, background 0.3s;
+}
+.card.active .hp-text {
+  font-size: 0.58rem; color: var(--dim);
+  padding: 0 5px 2px;
+}
+.card.active .energy-row {
+  display: flex; flex-wrap: wrap; gap: 3px;
+  padding: 1px 5px;
+}
+
+/* Attack buttons embedded on active card */
+.card.active .attacks {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 4px 5px 5px;
+}
+.attack-btn {
+  background: var(--surf-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 0.62rem;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+.attack-btn.legal {
+  border-color: var(--legal-bd);
+  background: var(--legal-bg);
+  color: var(--text);
+}
+.attack-btn.legal:hover { background: rgba(61,200,133,0.27); }
+.attack-btn:disabled { opacity: 0.36; cursor: not-allowed; }
+.attack-btn .name { font-weight: 700; }
+.attack-btn .dmg  { color: var(--yellow); font-weight: 700; margin-left: 4px; }
+.attack-cost      { display: flex; gap: 2px; margin-bottom: 2px; }
+.cost-pip {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+/* Bench card */
+.card.bench { width: var(--bench-w); }
+.card.bench .card-img,
+.card.bench .card-img-ph {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  object-fit: cover;
+  background: var(--surf-3);
+}
+.card.bench .card-img-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.55rem; color: var(--dimmer);
+  text-align: center; padding: 4px;
+}
+.card.bench .card-name {
+  font-size: 0.62rem; font-weight: 700;
+  padding: 2px 4px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card.bench .hp-bar {
+  margin: 2px 4px;
+  height: 4px; border-radius: 2px;
+  background: var(--surf-3);
+  overflow: hidden;
+}
+.card.bench .hp-fill {
+  height: 100%; border-radius: 2px;
+  transition: width 0.4s, background 0.3s;
+}
+.card.bench .hp-text {
+  font-size: 0.56rem; color: var(--dim);
+  padding: 0 4px 1px;
+}
+.card.bench .energy-row {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  padding: 1px 4px 3px;
+}
+
+/* Empty slots */
+.empty-slot {
+  width: var(--bench-w);
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--border);
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.empty-active {
+  width: var(--active-w);
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--border);
+  font-size: 1.5rem;
+}
 
 /* Energy pip */
-.ep{width:12px;height:12px;border-radius:50%;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:0.38rem;font-weight:900;color:#111;flex-shrink:0}
+.energy-pip {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.46rem; font-weight: 800;
+  color: #111;
+  flex-shrink: 0;
+}
 
-/* ═ HAND ════════════════════════════════════════════════ */
-#harea{background:var(--s1);border:1px solid var(--bd);border-radius:7px;padding:5px 8px;flex-shrink:0}
-#hhdr{display:flex;align-items:center;gap:7px;margin-bottom:4px}
-.hl{font-size:0.57rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--dimmer)}
-#hcards{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px;align-items:flex-end}
-#hcards::-webkit-scrollbar{height:4px}
-#hcards::-webkit-scrollbar-thumb{background:var(--bd);border-radius:2px}
+/* ════════════════════════════════════════════════════════════════
+   HAND
+═════════════════════════════════════════════════════════════════ */
+#hand-area {
+  background: var(--surf-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  flex-shrink: 0;
+}
+#hand-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px;
+}
+#hand-header .label {
+  font-size: 0.64rem; font-weight: 700;
+  color: var(--dimmer);
+  text-transform: uppercase; letter-spacing: 1px;
+}
+#hand-header .hint {
+  font-size: 0.62rem; color: var(--dimmer);
+}
+#hand-cards {
+  display: flex; gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  align-items: flex-start;
+}
 
-/* Hand card — fixed 68px wide, full aspect ratio image, NO vertical transform */
-.hc{flex-shrink:0;width:68px;border-radius:6px;border:2px solid var(--bd);background:var(--s2);cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative}
-.hc:hover{border-color:var(--bd2);box-shadow:0 0 6px rgba(255,255,255,.07)}
-.hc.legal{border-color:var(--gbd);background:var(--gbg);box-shadow:0 0 9px var(--glw)}
-.hc.legal:hover{box-shadow:0 0 16px var(--glw)}
-.hc.sel{border-color:var(--bl);background:rgba(74,141,224,.15)}
-.hc:not(.legal):not(.sel){opacity:.38;cursor:default}.hc:not(.legal):not(.sel):hover{border-color:var(--bd);box-shadow:none}
-.hc .ci{width:100%;aspect-ratio:5/7;object-fit:cover;display:block;border-radius:4px 4px 0 0}
-.hc .cph{width:100%;aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;font-size:0.48rem;color:var(--dimmer);text-align:center;padding:3px;background:var(--s3);border-radius:4px 4px 0 0}
-.hc .hn{font-size:0.56rem;font-weight:700;padding:2px 3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hc .ht2{font-size:0.48rem;color:var(--dimmer);padding:0 3px 3px}
-.hc .nb{position:absolute;top:-5px;right:-5px;background:var(--gr);color:#000;font-size:0.45rem;font-weight:900;padding:1px 4px;border-radius:8px;line-height:1.3;pointer-events:none}
+.hand-card {
+  flex-shrink: 0;
+  width: var(--hand-w);
+  border-radius: 7px;
+  border: 2px solid var(--border);
+  background: var(--surf-2);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  /* No transform = no jitter */
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.hand-card:hover { border-color: var(--border-2); box-shadow: 0 0 7px rgba(255,255,255,0.08); }
+.hand-card.legal {
+  border-color: var(--legal-bd);
+  background: var(--legal-bg);
+  box-shadow: 0 0 10px var(--legal-gw);
+}
+.hand-card.legal:hover { box-shadow: 0 0 16px var(--legal-gw); }
+.hand-card.selected {
+  border-color: var(--target-bd) !important;
+  background: var(--target-bg) !important;
+  box-shadow: 0 0 16px var(--target-gw);
+}
+.hand-card.disabled  { opacity: 0.45; }
+.hand-card .card-img,
+.hand-card .card-img-ph {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  object-fit: cover;
+  background: var(--surf-3);
+  border-radius: 5px 5px 0 0;
+}
+.hand-card .card-img-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.52rem; color: var(--dimmer);
+  text-align: center; padding: 5px;
+}
+.hand-card .card-name {
+  font-size: 0.64rem; font-weight: 700;
+  padding: 3px 4px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hand-card .card-type {
+  font-size: 0.54rem; color: var(--dim);
+  padding: 0 4px 4px;
+}
+.hand-card .badge {
+  position: absolute;
+  top: -6px; right: -6px;
+  background: var(--green);
+  color: #000;
+  font-size: 0.52rem; font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 9px;
+  pointer-events: none;
+}
+.hand-card .selection-banner {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: var(--purple);
+  color: #fff;
+  font-size: 0.52rem; font-weight: 800;
+  text-align: center;
+  padding: 3px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
 
-/* ═ MODALS ══════════════════════════════════════════════ */
-.mbg{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:200}
-.mbg.open{display:flex}
-.mbox{background:var(--s1);border:1px solid var(--bd2);border-radius:11px;padding:18px;min-width:240px;max-width:400px}
-.mttl{font-size:0.88rem;font-weight:700;margin-bottom:10px}
-.mlist{display:flex;flex-direction:column;gap:5px}
-.mb{background:var(--s2);border:1px solid var(--bd);border-radius:5px;padding:7px 10px;cursor:pointer;text-align:left;font-size:0.76rem;color:var(--tx);transition:all .12s}
-.mb:hover{border-color:var(--gbd);background:var(--gbg)}
-.mb.cancel{color:var(--dim)}.mb.cancel:hover{border-color:var(--rd);color:var(--rd);background:transparent}
+/* ════════════════════════════════════════════════════════════════
+   MODALS
+═════════════════════════════════════════════════════════════════ */
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.78);
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal-bg.open { display: flex; }
+.modal-box {
+  background: var(--surf-1);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 22px;
+  min-width: 280px;
+  max-width: 460px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.modal-title {
+  font-size: 0.98rem; font-weight: 700;
+  margin-bottom: 12px;
+}
+.modal-list { display: flex; flex-direction: column; gap: 6px; }
+.modal-btn {
+  background: var(--surf-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--text);
+  transition: background 0.12s, border-color 0.12s;
+}
+.modal-btn:hover { border-color: var(--legal-bd); background: var(--legal-bg); }
+.modal-btn.cancel { color: var(--dim); }
+.modal-btn.cancel:hover { border-color: var(--red); color: var(--red); background: transparent; }
 
-/* Zoom */
-#zm .mbox{padding:0;overflow:hidden;max-width:280px;background:var(--s2)}
-#zm-img{width:100%;display:block;max-height:200px;object-fit:cover}
-#zm-body{padding:12px}
-#zm-name{font-size:0.98rem;font-weight:800;margin-bottom:2px}
-#zm-sub{font-size:0.66rem;color:var(--dim);margin-bottom:7px}
-#zm-hp{margin-bottom:5px}
-#zm-en{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:7px;align-items:center}
-#zm-atks{display:flex;flex-direction:column;gap:4px}
-.za{background:var(--s3);border:1px solid var(--bd);border-radius:5px;padding:5px 7px}
-.za-top{display:flex;align-items:center;gap:5px;margin-bottom:2px}
-.za-nm{font-weight:700;font-size:0.78rem}
-.za-dm{color:var(--yl);font-weight:800;font-size:0.82rem;margin-left:auto}
-.za-co{display:flex;gap:2px}
-.za-fx{font-size:0.6rem;color:var(--dim);font-style:italic}
-#zm-close{width:100%;padding:7px;background:var(--s3);border:none;border-top:1px solid var(--bd);color:var(--dim);cursor:pointer;font-size:0.72rem}
-#zm-close:hover{color:var(--tx)}
+/* Zoom modal */
+#zoom-modal .modal-box {
+  padding: 0;
+  overflow: hidden;
+  max-width: 360px;
+  background: var(--surf-1);
+  display: flex; flex-direction: column;
+}
+#zoom-img-wrap {
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 220px;
+  max-height: 60vh;
+}
+#zoom-img {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  width: auto; height: auto;
+  object-fit: contain; /* shows full card image without cropping */
+}
+#zoom-img-ph {
+  display: none;
+  color: var(--dim);
+  font-size: 1rem;
+  padding: 80px 20px;
+}
+#zoom-body { padding: 14px 18px; }
+#zoom-name { font-size: 1.05rem; font-weight: 800; margin-bottom: 3px; }
+#zoom-sub  { font-size: 0.72rem; color: var(--dim); margin-bottom: 9px; }
+#zoom-hp   { margin-bottom: 8px; }
+#zoom-energy {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+#zoom-attacks { display: flex; flex-direction: column; gap: 5px; }
+.zoom-attack {
+  background: var(--surf-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+.zoom-attack-top {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 2px;
+}
+.zoom-attack-name { font-weight: 700; font-size: 0.84rem; }
+.zoom-attack-dmg  { color: var(--yellow); font-weight: 800; font-size: 0.9rem; margin-left: auto; }
+.zoom-attack-cost { display: flex; gap: 3px; }
+.zoom-attack-fx   { font-size: 0.68rem; color: var(--dim); font-style: italic; }
+#zoom-close-btn {
+  width: 100%;
+  padding: 9px;
+  background: var(--surf-3);
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 0.78rem;
+  transition: color 0.12s, background 0.12s;
+}
+#zoom-close-btn:hover { color: var(--text); background: var(--surf-2); }
 
-/* Promo */
-#pm .mbox{text-align:center}
-#pm-ch{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+/* Discard modal */
+#discard-modal .modal-box {
+  max-width: 600px;
+  width: 100%;
+  display: flex; flex-direction: column;
+}
+#discard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  padding: 4px 6px 4px 0;
+  margin: 8px 0;
+}
+.discard-card {
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--surf-2);
+  transition: border-color 0.12s;
+}
+.discard-card:hover { border-color: var(--border-2); }
+.discard-card img {
+  width: 100%; aspect-ratio: 5 / 7;
+  object-fit: cover;
+}
+.discard-card-ph {
+  width: 100%; aspect-ratio: 5 / 7;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.55rem; color: var(--dimmer);
+  background: var(--surf-3);
+  text-align: center; padding: 4px;
+}
+.discard-card-name {
+  font-size: 0.6rem; color: var(--dim);
+  padding: 3px 4px;
+  text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
-/* Game over */
-#gom .mbox{text-align:center;padding:28px}
-#go-msg{font-size:1.8rem;font-weight:800;margin-bottom:4px}
-#go-sub{font-size:0.8rem;color:var(--dim);margin-bottom:18px}
+/* Promo modal */
+#promo-modal .modal-box { text-align: center; max-width: 520px; }
+#promo-choices {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+/* Game-over */
+#gameover-modal .modal-box { text-align: center; padding: 32px; }
+#gameover-msg { font-size: 1.9rem; font-weight: 800; margin-bottom: 4px; }
+#gameover-sub { font-size: 0.84rem; color: var(--dim); margin-bottom: 22px; }
 
 /* Lobby */
-#lobby{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;z-index:500}
-.lbox{background:var(--s1);border:1px solid var(--bd2);border-radius:13px;padding:30px 36px;text-align:center;min-width:280px}
-.ltl{font-size:1.4rem;font-weight:800;color:var(--yl);margin-bottom:4px}
-.lsb{font-size:0.76rem;color:var(--dim);margin-bottom:20px}
-.dchs{display:flex;gap:10px;justify-content:center}
-.dbtn{background:var(--s2);border:2px solid var(--bd);border-radius:9px;padding:12px 16px;cursor:pointer;font-size:0.84rem;font-weight:700;transition:all .14s;min-width:110px;color:var(--tx)}
-.dbtn:hover{border-color:var(--gbd);background:var(--gbg);box-shadow:0 0 12px var(--glw)}
-.dbtn.r{border-color:#c47830;color:#c47830}.dbtn.e{border-color:#d4b800;color:#d4b800}
-
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--bd);border-radius:2px}
+#lobby {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.92);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 500;
+}
+.lobby-box {
+  background: var(--surf-1);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  padding: 32px 42px;
+  text-align: center;
+  min-width: 320px;
+}
+.lobby-title { font-size: 1.5rem; font-weight: 800; color: var(--yellow); margin-bottom: 4px; }
+.lobby-sub   { font-size: 0.8rem; color: var(--dim); margin-bottom: 22px; }
+.deck-choices { display: flex; gap: 12px; justify-content: center; }
+.deck-btn {
+  background: var(--surf-2);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 0.86rem; font-weight: 700;
+  min-width: 130px;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.deck-btn:hover {
+  border-color: var(--legal-bd);
+  background: var(--legal-bg);
+  box-shadow: 0 0 14px var(--legal-gw);
+}
+.deck-btn.lyc { border-color: #c47832; color: #c47832; }
+.deck-btn.rai { border-color: #d4b800; color: #d4b800; }
+.deck-btn small { display: block; font-weight: 400; color: var(--dim); margin-top: 3px; }
 </style>
 </head>
 <body>
 
 <!-- LOBBY -->
 <div id="lobby">
-  <div class="lbox">
-    <div class="ltl">Pokémon TCG</div>
-    <div class="lsb">Choose your deck — bot plays the other side</div>
-    <div class="dchs">
-      <button class="dbtn r" onclick="go('lycanroc')">🪨 Lycanroc<br><small style="font-weight:400;color:var(--dim)">Fighting</small></button>
-      <button class="dbtn e" onclick="go('raichu')">⚡ Alolan Raichu<br><small style="font-weight:400;color:var(--dim)">Lightning · Psychic</small></button>
+  <div class="lobby-box">
+    <div class="lobby-title">Pokémon TCG</div>
+    <div class="lobby-sub">Choose your deck — bot plays the other side</div>
+    <div class="deck-choices">
+      <button class="deck-btn lyc" data-deck="lycanroc">🪨 Lycanroc<small>Fighting</small></button>
+      <button class="deck-btn rai" data-deck="raichu">⚡ Alolan Raichu<small>Lightning · Psychic</small></button>
     </div>
   </div>
 </div>
 
-<!-- GAME OVER -->
-<div class="mbg" id="gom"><div class="mbox"><div id="go-msg"></div><div id="go-sub"></div><button class="btn y" onclick="lobby()">Play Again</button></div></div>
+<!-- MODALS -->
+<div class="modal-bg" id="gameover-modal">
+  <div class="modal-box">
+    <div id="gameover-msg"></div>
+    <div id="gameover-sub"></div>
+    <button class="btn primary" id="gameover-replay">Play Again</button>
+  </div>
+</div>
 
-<!-- PROMOTION -->
-<div class="mbg" id="pm"><div class="mbox"><div class="mttl">⚠️ Active KO'd — choose replacement</div><div id="pm-ch"></div></div></div>
+<div class="modal-bg" id="promo-modal">
+  <div class="modal-box">
+    <div class="modal-title">⚠️ Active Pokémon was KO'd</div>
+    <div style="font-size:0.8rem;color:var(--dim);margin:-4px 0 8px">Choose a benched Pokémon to send up:</div>
+    <div id="promo-choices"></div>
+  </div>
+</div>
 
-<!-- ACTION PICKER -->
-<div class="mbg" id="am"><div class="mbox"><div class="mttl" id="am-t">Choose action</div><div class="mlist" id="am-l"></div></div></div>
+<div class="modal-bg" id="action-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="action-modal-title">Choose action</div>
+    <div class="modal-list" id="action-modal-list"></div>
+  </div>
+</div>
 
-<!-- ZOOM -->
-<div class="mbg" id="zm" onclick="czoom(event)">
-  <div class="mbox">
-    <img id="zm-img" src="" alt="">
-    <div id="zm-body">
-      <div id="zm-name"></div><div id="zm-sub"></div>
-      <div id="zm-hp"></div><div id="zm-en"></div><div id="zm-atks"></div>
+<div class="modal-bg" id="zoom-modal">
+  <div class="modal-box">
+    <div id="zoom-img-wrap">
+      <img id="zoom-img" alt="">
+      <div id="zoom-img-ph">No image</div>
     </div>
-    <button id="zm-close" onclick="czoom()">✕ Close</button>
+    <div id="zoom-body">
+      <div id="zoom-name"></div>
+      <div id="zoom-sub"></div>
+      <div id="zoom-hp"></div>
+      <div id="zoom-energy"></div>
+      <div id="zoom-attacks"></div>
+    </div>
+    <button id="zoom-close-btn">Close (Esc)</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="discard-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="discard-title">Discard pile</div>
+    <div id="discard-grid"></div>
+    <button class="btn" id="discard-close" style="width:100%">Close</button>
   </div>
 </div>
 
 <!-- APP -->
 <div id="app">
-  <div id="bar">
+  <div id="topbar">
     <h1>Pokémon TCG</h1>
-    <div id="tb">—</div>
-    <div class="sp"></div>
-    <div class="dots" id="dots"><i></i><i></i><i></i><span style="font-size:.68rem;color:var(--bl);margin-left:3px">Bot</span></div>
-    <button class="btn y" id="etb" onclick="skip()" disabled>End Turn</button>
-    <button class="btn r" onclick="lobby()">New Game</button>
+    <div class="turn-badge" id="turn-badge">—</div>
+    <div class="spacer"></div>
+    <div class="dots" id="bot-dots">
+      <span></span><span></span><span></span>
+      <em style="font-style:normal;margin-left:5px;font-size:0.74rem">Bot thinking</em>
+    </div>
+    <button class="btn primary" id="end-turn-btn" disabled>End Turn</button>
+    <button class="btn danger" id="new-game-btn">New Game</button>
+  </div>
+
+  <div id="target-banner">
+    <span id="target-banner-text">Select a target</span>
+    &nbsp;·&nbsp; click here or press <kbd>Esc</kbd> to cancel
   </div>
 
   <div id="main">
     <div id="board">
-      <div class="sbar" id="os"></div>
+      <div class="statbar" id="opp-stats"></div>
 
       <div id="arena">
-        <!-- OPP: bench | active -->
-        <div class="half opp" id="oh">
-          <div class="zone">
-            <div class="zlbl" style="color:var(--rd)">Active</div>
-            <div id="oa"></div>
+        <!-- OPP HALF -->
+        <div class="arena-half opp">
+          <div class="arena-zone">
+            <div class="zone-label opp">Opp Active</div>
+            <div id="opp-active"></div>
           </div>
-          <div class="adiv"></div>
-          <div class="zone">
-            <div class="zlbl">Bench</div>
-            <div class="brow" id="ob"></div>
+          <div class="arena-zone">
+            <div class="zone-label">Bench</div>
+            <div class="bench-row" id="opp-bench"></div>
           </div>
         </div>
 
-        <div style="width:2px;background:var(--bd2);align-self:stretch;flex-shrink:0;margin:0 6px;border-radius:1px"></div>
+        <div class="arena-divider"></div>
 
-        <!-- MY: active | bench -->
-        <div class="half" id="mh">
-          <div class="zone">
-            <div class="zlbl" style="color:var(--gr)">Active</div>
-            <div id="ma"></div>
+        <!-- MY HALF -->
+        <div class="arena-half">
+          <div class="arena-zone">
+            <div class="zone-label mine">My Active</div>
+            <div id="my-active"></div>
           </div>
-          <div class="adiv"></div>
-          <div class="zone">
-            <div class="zlbl">Bench</div>
-            <div class="brow" id="mb"></div>
+          <div class="arena-zone">
+            <div class="zone-label">Bench</div>
+            <div class="bench-row" id="my-bench"></div>
           </div>
         </div>
       </div>
 
-      <div class="sbar" id="ms"></div>
+      <div class="statbar" id="my-stats"></div>
 
-      <div id="harea">
-        <div id="hhdr"><span class="hl">Your Hand</span><span id="hcnt" style="font-size:.6rem;color:var(--dimmer)"></span></div>
-        <div id="hcards"></div>
+      <div id="hand-area">
+        <div id="hand-header">
+          <span class="label">Your Hand</span>
+          <span id="hand-count" style="font-size:0.64rem;color:var(--dimmer)"></span>
+          <span class="spacer"></span>
+          <span class="hint">Click to play · Right-click to view</span>
+        </div>
+        <div id="hand-cards"></div>
       </div>
     </div>
 
     <div id="sidebar">
-      <div id="lhdr">Battle Log</div>
+      <div id="log-hdr">Battle Log</div>
       <div id="log"></div>
     </div>
   </div>
 </div>
 
 <script>
-/* ══ CONSTS ═════════════════════════════════════════════ */
-const EC={Colorless:'#aaa',Fighting:'#c87830',Lightning:'#f0d020',Psychic:'#c070e8'};
-const EL={Colorless:'C',Fighting:'F',Lightning:'L',Psychic:'P'};
-const FX={heal_self_20:'Heal 20 from self',coin_plus10:'Flip coin: +10 on heads',flip4_20each:'Flip 4 coins: 20× each heads',coin_plus30:'Flip coin: +30 on heads',flip2_plus20each:'Flip 2 coins: +20× each heads',opponent_minus20_next_turn:"Opp next attack −20 dmg",discard_random_opponent_hand:"Shuffle random opp hand card into deck",plus30_vs_caterpie:'+30 vs Caterpie',bench_10_any:'10 dmg to any bench Pokémon',optional_plus40_self20:'+40 dmg, but deal 20 to self',coin_protect_self:'Flip: heads prevents damage next turn',discard_lightning_30each:'Discard ⚡ energy: 30× each discarded','10x_opp_energy':'10× opp active energy count',heal_active_20:'Heal active Pokémon 20 HP',heal_active_30:'Heal active Pokémon 30 HP',great_ball:'Look at top 7 cards, take a Pokémon',draw3:'Draw 3 cards'};
+"use strict";
 
-/* ══ STATE ══════════════════════════════════════════════ */
-let S=null,poll=null;
+/* ════════════════════════════════════════════════════════════════
+   CONSTANTS
+═════════════════════════════════════════════════════════════════ */
+const ENERGY_COLOR = {
+  Colorless: "#aaaaaa", Fighting: "#c87830",
+  Lightning: "#f0d020", Psychic: "#c070e8",
+};
+const ENERGY_LETTER = { Colorless: "C", Fighting: "F", Lightning: "L", Psychic: "P" };
+const EFFECT_TEXT = {
+  heal_self_20:                 "Heal 20 from self",
+  coin_plus10:                  "Flip a coin: +10 on heads",
+  flip4_20each:                 "Flip 4 coins: 20 dmg per heads",
+  coin_plus30:                  "Flip a coin: +30 on heads",
+  flip2_plus20each:             "Flip 2 coins: +20 dmg per heads",
+  opponent_minus20_next_turn:   "Opponent's next attack does −20 dmg",
+  discard_random_opponent_hand: "Shuffle a random card from opp hand into deck",
+  plus30_vs_caterpie:           "+30 dmg if opp active is Caterpie",
+  bench_10_any:                 "Deal 10 dmg to any benched Pokémon",
+  optional_plus40_self20:       "+40 dmg, but deal 20 to self",
+  coin_protect_self:            "Flip: heads = no damage taken next turn",
+  discard_lightning_30each:     "Discard all ⚡ energy: 30 dmg per discarded",
+  "10x_opp_energy":             "10 dmg × opp's active energy count",
+  heal_active_20:               "Heal active Pokémon 20 HP",
+  heal_active_30:               "Heal active Pokémon 30 HP",
+  great_ball:                   "Look at top 7 cards, take a Pokémon",
+  draw3:                        "Draw 3 cards",
+};
 
-/* ══ NETWORK ════════════════════════════════════════════ */
-async function go(deck){
-  document.getElementById('lobby').style.display='none';
-  document.getElementById('gom').classList.remove('open');
-  S=await post('/api/new_game',{deck}); render(S); startPoll();
+/* ════════════════════════════════════════════════════════════════
+   STATE
+═════════════════════════════════════════════════════════════════ */
+let state         = null;
+let pollTimer     = null;
+let pollFreq      = 700;
+let selectedHand  = null;          // { handIdx, mode } when targeting
+
+// Card registry: numeric id → card object. Used to robustly look up cards
+// for zoom from data-card-id attrs (avoids brittle JSON-in-attr encoding).
+let cardRegistry = new Map();
+let nextCardId   = 1;
+function registerCard(card) {
+  const id = nextCardId++;
+  cardRegistry.set(id, card);
+  return id;
 }
-function lobby(){stopPoll();document.getElementById('gom').classList.remove('open');document.getElementById('lobby').style.display='flex';}
-function startPoll(){
+function clearCardRegistry() {
+  cardRegistry.clear();
+  nextCardId = 1;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   API
+═════════════════════════════════════════════════════════════════ */
+async function api(path, body) {
+  try {
+    const opts = body !== undefined
+      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : { method: "GET" };
+    const r = await fetch(path, opts);
+    return await r.json();
+  } catch (e) {
+    console.error("API error:", e);
+    return null;
+  }
+}
+
+async function startGame(deck) {
+  document.getElementById("lobby").style.display = "none";
+  document.getElementById("gameover-modal").classList.remove("open");
+  cancelTargeting();
+  state = await api("/api/new_game", { deck });
+  render(state);
+  startPoll();
+}
+
+function showLobby() {
   stopPoll();
-  poll=setInterval(async()=>{
-    const s=await get('/api/state');
-    if(s&&s.mode!=='idle'){S=s;render(s);}
-    if(s&&s.mode==='over') stopPoll();
-  }, S&&S.pending_bot?250:700);
-}
-function stopPoll(){if(poll){clearInterval(poll);poll=null;}}
-async function act(idx){closeAM();S=await post('/api/action',{action:idx});render(S);if(S.pending_bot)startPoll();}
-async function skip(){S=await post('/api/skip_turn',{});render(S);if(S.pending_bot)startPoll();}
-async function get(url){try{const r=await fetch(url);return await r.json();}catch{return null;}}
-async function post(url,body){try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return await r.json();}catch{return null;}}
-
-/* ══ RENDER ═════════════════════════════════════════════ */
-function render(s){
-  if(!s||s.mode==='idle') return;
-  rBar(s); rOS(s); rMS(s); rOA(s); rOB(s); rMA(s); rMB(s); rHand(s); rLog(s);
-  if(s.promotion&&s.promotion.player_idx===s.human_player) showPromo(s);
-  else document.getElementById('pm').classList.remove('open');
-  if(s.mode==='over'){stopPoll();showGO(s);}
+  cancelTargeting();
+  closeAllModals();
+  document.getElementById("lobby").style.display = "flex";
 }
 
-function rBar(s){
-  const b=document.getElementById('tb'),btn=document.getElementById('etb'),d=document.getElementById('dots');
-  if(s.pending_bot){b.textContent=`Turn ${s.turn} · Bot…`;b.className='bot';}
-  else if(s.is_my_turn){b.textContent=`Turn ${s.turn} · Your turn`;b.className='my';}
-  else{b.textContent=`Turn ${s.turn}`;b.className='';}
-  d.className=s.pending_bot?'dots on':'dots';
-  btn.disabled=!s.is_my_turn||s.mode==='over';
+async function sendAction(actionIdx) {
+  cancelTargeting();
+  closeActionModal();
+  state = await api("/api/action", { action: actionIdx });
+  render(state);
+  if (state && state.pending_bot) startPoll();
 }
 
-/* ── Stat bars ──────────────────────────────────────────── */
-function rOS(s){
-  const o=s.opp;
-  document.getElementById('os').innerHTML=
-    koH(o.ko_count)+`<span class="sl" style="margin-left:3px">Opp KOs</span>`+
-    `<div class="sp"></div>`+
-    `<span class="sl">Hand</span><span class="sv" style="margin:0 8px 0 3px">${o.hand_size}</span>`+
-    pileH(o.deck_size,null,true)+pileH(o.discard_size,o.discard_top,false);
-}
-function rMS(s){
-  const m=s.my;
-  document.getElementById('ms').innerHTML=
-    koH(m.ko_count)+`<span class="sl" style="margin-left:3px">My KOs</span>`+
-    `<div class="sp"></div>`+
-    `<span class="fl ${s.energy_used?'off':'on'}">⚡ Energy</span>`+
-    `<span class="fl ${s.supporter_used?'off':'on'}">📣 Supporter</span>`+
-    pileH(m.deck_size,null,true)+pileH(m.discard_size,m.discard_top,false);
-}
-function koH(n){
-  let h='';for(let i=0;i<6;i++)h+=`<div class="kp${i<n?' on':''}"></div>`;
-  return `<div class="kot">${h}</div>`;
-}
-function pileH(count,top,isDeck){
-  const inner=isDeck
-    ?`<div class="pci" style="font-size:.9rem;border-style:dashed">🂠</div>`
-    :top&&top.img
-      ?`<div class="pci" onclick="zoom(${ej(top)})" style="cursor:pointer"><img src="${top.img}"></div>`
-      :`<div class="pci" style="border-style:dashed;font-size:.5rem">${count||'—'}</div>`;
-  return `<div class="pc">${inner}<div class="pcl">${isDeck?'Deck':'Disc.'} ${count}</div></div>`;
+async function endTurn() {
+  cancelTargeting();
+  state = await api("/api/skip_turn", {});
+  render(state);
+  if (state && state.pending_bot) startPoll();
 }
 
-/* ── Active cards ───────────────────────────────────────── */
-function rOA(s){document.getElementById('oa').innerHTML=s.opp.active?aCard(s.opp.active,false,false,s):emptyA();}
-function rMA(s){
-  const al=0 in s.legal_attach;
-  document.getElementById('ma').innerHTML=s.my.active?aCard(s.my.active,al,s.is_my_turn,s):emptyA();
+/* Polling: re-create only when frequency changes; never call startPoll
+   from inside the interval callback. */
+function startPoll() {
+  stopPoll();
+  pollFreq = (state && state.pending_bot) ? 250 : 700;
+  pollTimer = setInterval(pollTick, pollFreq);
 }
-function emptyA(){return `<div class="card ca dim" style="display:flex;align-items:center;justify-content:center;color:var(--bd);font-size:1.2rem">·</div>`;}
-
-function aCard(p,al,isMe,s){
-  const hc=hCol(p.hp_pct);
-  const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
-  const en=enH(p.energy);
-  let atks='';
-  if(s&&isMe&&p.attacks){
-    atks='<div class="atks">'+p.attacks.map((a,ai)=>{
-      const lg=ai in s.legal_attacks;
-      const co=a.cost.map(c=>`<div class="ap" style="background:${EC[c.type]||'#888'}"></div>`).join('');
-      const oc=lg?`onclick="event.stopPropagation();act(${s.legal_attacks[ai]})"`:''
-      return `<div class="ab${lg?' legal':''}" ${oc}><div class="ac">${co}</div><span class="an">${a.name}</span>${a.damage?`<span class="ad">${a.damage}</span>`:''}</div>`;
-    }).join('')+'</div>';
+async function pollTick() {
+  const s = await api("/api/state");
+  if (!s) return;
+  if (s.mode !== "idle") {
+    state = s;
+    render(s);
   }
-  const cls=al&&isMe?'legal':'';
-  const oc=al&&isMe?`onclick="act(${s.legal_attach[0]})"`:''
-  return `<div class="card ca ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(p)})" title="${p.name} · ${p.current_hp}/${p.hp}HP${al?' · Click to attach energy':' · Right-click to zoom'}">
-    ${img}<div class="cn">${p.name}</div><div class="cs">${p.stage}</div>
-    <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
-    <div class="ht">${p.current_hp}/${p.hp} HP</div>
-    <div class="ce">${en}</div>${atks}</div>`;
-}
-
-/* ── Bench cards ────────────────────────────────────────── */
-function rOB(s){
-  const el=document.getElementById('ob');el.innerHTML='';
-  for(let i=0;i<5;i++){const p=s.opp.bench[i];el.innerHTML+=p?bCard(p,false,false,-1,s):'<div class="be">·</div>';}
-}
-function rMB(s){
-  const el=document.getElementById('mb');el.innerHTML='';
-  for(let i=0;i<5;i++){
-    const p=s.my.bench[i];
-    if(p){const al=(i+1) in s.legal_attach;el.innerHTML+=bCard(p,al,s.is_my_turn,i,s);}
-    else el.innerHTML+='<div class="be">·</div>';
+  if (s.mode === "over") { stopPoll(); return; }
+  // Adjust frequency if bot state flipped
+  const want = s.pending_bot ? 250 : 700;
+  if (want !== pollFreq) {
+    pollFreq = want;
+    stopPoll();
+    pollTimer = setInterval(pollTick, pollFreq);
   }
 }
-function bCard(p,al,isMe,bi,s){
-  const hc=hCol(p.hp_pct);
-  const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
-  const en=enH(p.energy);
-  const slot=bi+1;
-  const cls=al&&isMe?'legal':'';
-  const oc=al&&isMe&&s?`onclick="act(${s.legal_attach[slot]})"`:''
-  return `<div class="card cb ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(p)})" title="${p.name} · ${p.current_hp}/${p.hp}HP${al?' · Click to attach':' · Right-click to zoom'}">
-    ${img}<div class="cn">${p.name}</div>
-    <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
-    <div class="ht">${p.current_hp}/${p.hp}</div>
-    <div class="ce">${en}</div></div>`;
+function stopPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
-function enH(arr){if(!arr||!arr.length)return '';return arr.map(e=>`<div class="ep" style="background:${e.color}" title="${e.type}">${EL[e.type]||'?'}</div>`.repeat(e.count)).join('');}
+
+/* ════════════════════════════════════════════════════════════════
+   TARGETING
+═════════════════════════════════════════════════════════════════ */
+function startTargeting(handIdx, mode) {
+  selectedHand = { handIdx, mode };
+  const text = document.getElementById("target-banner-text");
+  text.textContent = mode === "energy"
+    ? "Select a Pokémon to attach energy to"
+    : mode === "heal"
+      ? "Select a Pokémon to heal"
+      : "Select a target";
+  document.getElementById("target-banner").classList.add("on");
+  renderArenaAndHand();
+}
+function cancelTargeting() {
+  if (selectedHand === null) return;
+  selectedHand = null;
+  document.getElementById("target-banner").classList.remove("on");
+  renderArenaAndHand();
+}
+function findTargetAction(slot) {
+  if (!selectedHand || !state) return null;
+  const acts = state.legal_hand[selectedHand.handIdx] || [];
+  return acts.find(a => a.target && a.target.slot === slot) || null;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HAND CLICK
+═════════════════════════════════════════════════════════════════ */
+function handCardClick(handIdx, evt) {
+  if (!state) return;
+
+  // If user shift/ctrl/middle-clicked, just zoom — never play.
+  if (evt && (evt.shiftKey || evt.ctrlKey || evt.metaKey)) {
+    const card = state.my.hand[handIdx];
+    if (card) showZoom(card);
+    return;
+  }
+
+  // Not your turn? Just zoom.
+  if (!state.is_my_turn) {
+    const card = state.my.hand[handIdx];
+    if (card) showZoom(card);
+    return;
+  }
+
+  // Toggle off if already selected
+  if (selectedHand && selectedHand.handIdx === handIdx) {
+    cancelTargeting();
+    return;
+  }
+  if (selectedHand) cancelTargeting();
+
+  const acts = state.legal_hand[handIdx] || [];
+
+  // No legal action → zoom the card instead (let user inspect)
+  if (acts.length === 0) {
+    const card = state.my.hand[handIdx];
+    if (card) showZoom(card);
+    return;
+  }
+
+  const isEnergy = state.energy_hand_indices.includes(handIdx);
+  const isHeal   = state.heal_hand_indices.includes(handIdx);
+
+  if (isEnergy) {
+    startTargeting(handIdx, "energy");
+    return;
+  }
+  if (isHeal) {
+    if (acts.length === 1) sendAction(acts[0].action);
+    else                   startTargeting(handIdx, "heal");
+    return;
+  }
+  if (acts.length === 1) {
+    sendAction(acts[0].action);
+    return;
+  }
+  // Pokémon card with multiple targets (evolve to multiple slots, etc.)
+  showActionModal(state.my.hand[handIdx].name, acts);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ZOOM (left-click on non-action cards, right-click anywhere)
+═════════════════════════════════════════════════════════════════ */
+function showZoom(card) {
+  if (!card) return;
+  const img  = document.getElementById("zoom-img");
+  const ph   = document.getElementById("zoom-img-ph");
+  if (card.img) {
+    img.src = card.img;
+    img.style.display = "block";
+    ph.style.display  = "none";
+  } else {
+    img.removeAttribute("src");
+    img.style.display = "none";
+    ph.style.display  = "block";
+  }
+
+  document.getElementById("zoom-name").textContent = card.name || "";
+
+  let sub = "";
+  if (card.card_type === "pokemon")     sub = `${card.stage || ""} Pokémon`;
+  else if (card.card_type === "energy") sub = `${card.energy_type || ""} Energy`;
+  else if (card.card_type) {
+    const ct = card.card_type[0].toUpperCase() + card.card_type.slice(1);
+    const fx = EFFECT_TEXT[card.effect] || card.effect || "";
+    sub = fx ? `${ct} — ${fx}` : ct;
+  }
+  document.getElementById("zoom-sub").textContent = sub;
+
+  // HP
+  const hpEl = document.getElementById("zoom-hp");
+  if (card.hp) {
+    const color = hpColor(card.hp_pct ?? 100);
+    hpEl.innerHTML = `
+      <div style="font-size:0.84rem;font-weight:700;color:${color}">
+        ${card.current_hp} / ${card.hp} HP
+      </div>
+      <div style="margin-top:5px;height:6px;background:var(--surf-3);border-radius:3px;overflow:hidden">
+        <div style="width:${card.hp_pct ?? 100}%;height:100%;background:${color};border-radius:3px"></div>
+      </div>`;
+  } else hpEl.innerHTML = "";
+
+  // Energy
+  const enEl = document.getElementById("zoom-energy");
+  if (card.energy && card.energy.length) {
+    let html = `<span style="font-size:0.72rem;color:var(--dim);margin-right:4px">Energy attached:</span>`;
+    for (const e of card.energy) {
+      for (let i = 0; i < e.count; i++) {
+        html += `<div class="energy-pip" style="background:${e.color};width:18px;height:18px;font-size:0.56rem">${ENERGY_LETTER[e.type] || "?"}</div>`;
+      }
+    }
+    enEl.innerHTML = html;
+  } else enEl.innerHTML = "";
+
+  // Attacks
+  const atkEl = document.getElementById("zoom-attacks");
+  if (card.attacks && card.attacks.length) {
+    atkEl.innerHTML = card.attacks.map(a => {
+      const cost = a.cost.map(c =>
+        `<div class="energy-pip" style="background:${ENERGY_COLOR[c.type] || '#888'};width:14px;height:14px;font-size:0.46rem">${ENERGY_LETTER[c.type] || "?"}</div>`
+      ).join("");
+      const fx = a.effect ? `<div class="zoom-attack-fx">${esc(EFFECT_TEXT[a.effect] || a.effect)}</div>` : "";
+      return `
+        <div class="zoom-attack">
+          <div class="zoom-attack-top">
+            <div class="zoom-attack-cost">${cost}</div>
+            <div class="zoom-attack-name">${esc(a.name)}</div>
+            ${a.damage ? `<div class="zoom-attack-dmg">${a.damage}</div>` : ""}
+          </div>
+          ${fx}
+        </div>`;
+    }).join("");
+  } else atkEl.innerHTML = "";
+
+  document.getElementById("zoom-modal").classList.add("open");
+}
+function closeZoom() { document.getElementById("zoom-modal").classList.remove("open"); }
+
+/* ════════════════════════════════════════════════════════════════
+   ACTION-PICKER MODAL
+═════════════════════════════════════════════════════════════════ */
+function showActionModal(title, actions) {
+  document.getElementById("action-modal-title").textContent = `${title} — choose action`;
+  const list = document.getElementById("action-modal-list");
+  list.innerHTML = "";
+  actions.forEach(a => {
+    const b = document.createElement("button");
+    b.className   = "modal-btn";
+    b.textContent = describeAction(a);
+    b.onclick     = () => sendAction(a.action);
+    list.appendChild(b);
+  });
+  const c = document.createElement("button");
+  c.className   = "modal-btn cancel";
+  c.textContent = "✕ Cancel";
+  c.onclick     = closeActionModal;
+  list.appendChild(c);
+  document.getElementById("action-modal").classList.add("open");
+}
+function closeActionModal() {
+  document.getElementById("action-modal").classList.remove("open");
+}
+function describeAction(a) {
+  if (!state) return a.type;
+  switch (a.type) {
+    case "ATTACH_ENERGY": return a.target ? `Attach to ${a.target.name}` : "Attach";
+    case "PLAY_POKEMON":  return `Bench ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
+    case "EVOLVE":        return a.target ? `Evolve ${a.target.name}` : `Evolve (slot ${a.params.slot})`;
+    case "USE_ITEM":      return `Use ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
+    case "USE_SUPPORTER": return `Play ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
+    case "ATTACK":        return `⚔ ${state.my.active?.attacks?.[a.params.atk_idx]?.name || "?"}`;
+    default:              return a.type;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DISCARD VIEWER
+═════════════════════════════════════════════════════════════════ */
+function openDiscard(side) {
+  if (!state) return;
+  const pile  = side === "my" ? state.my.discard_all : state.opp.discard_all;
+  const label = side === "my" ? "Your Discard"        : "Opponent's Discard";
+  document.getElementById("discard-title").textContent = `${label} (${pile?.length || 0} cards)`;
+
+  const grid = document.getElementById("discard-grid");
+  grid.innerHTML = "";
+
+  if (!pile || pile.length === 0) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--dim);font-size:0.78rem;padding:14px">Discard is empty</div>`;
+  } else {
+    [...pile].reverse().forEach(card => {
+      const wrap = document.createElement("div");
+      wrap.className = "discard-card";
+      wrap.title     = card.name;
+      wrap.onclick   = () => showZoom(card);
+      const inner = card.img
+        ? `<img src="${esc(card.img)}" alt="${esc(card.name)}">`
+        : `<div class="discard-card-ph">${esc(card.name)}</div>`;
+      wrap.innerHTML = `${inner}<div class="discard-card-name">${esc(card.name)}</div>`;
+      grid.appendChild(wrap);
+    });
+  }
+  document.getElementById("discard-modal").classList.add("open");
+}
+function closeDiscard() { document.getElementById("discard-modal").classList.remove("open"); }
+function closeAllModals() {
+  ["zoom-modal", "action-modal", "discard-modal", "promo-modal", "gameover-modal"]
+    .forEach(id => document.getElementById(id).classList.remove("open"));
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PROMOTION
+═════════════════════════════════════════════════════════════════ */
+function renderPromotion(s) {
+  const container = document.getElementById("promo-choices");
+  container.innerHTML = "";
+  s.promotion.bench.forEach((p, i) => {
+    const idx = s.legal_promote[i];
+    if (idx === undefined) return;
+    const color = hpColor(p.hp_pct);
+    const img = p.img
+      ? `<img class="card-img" src="${esc(p.img)}" alt="${esc(p.name)}">`
+      : `<div class="card-img-ph">${esc(p.name)}</div>`;
+    const card = document.createElement("div");
+    card.className = "card bench legal";
+    card.innerHTML = `
+      ${img}
+      <div class="card-name" style="text-align:center">${esc(p.name)}</div>
+      <div class="hp-bar"><div class="hp-fill" style="width:${p.hp_pct}%;background:${color}"></div></div>
+      <div class="hp-text" style="text-align:center">${p.current_hp} / ${p.hp}</div>`;
+    card.onclick = () => sendAction(idx);
+    container.appendChild(card);
+  });
+  document.getElementById("promo-modal").classList.add("open");
+}
+
+/* ════════════════════════════════════════════════════════════════
+   GAME OVER
+═════════════════════════════════════════════════════════════════ */
+function showGameOver(s) {
+  const msg = document.getElementById("gameover-msg");
+  const sub = document.getElementById("gameover-sub");
+  if (s.winner === s.human_player) {
+    msg.textContent = "🎉 You Win!"; msg.style.color = "var(--green)";
+  } else if (s.winner === -1) {
+    msg.textContent = "Draw"; msg.style.color = "var(--yellow)";
+  } else {
+    msg.textContent = "Bot Wins"; msg.style.color = "var(--red)";
+  }
+  sub.textContent = { ko: "by KO", deckout: "by deck-out", timeout: "time limit" }[s.win_reason] || "";
+  document.getElementById("gameover-modal").classList.add("open");
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RENDER
+═════════════════════════════════════════════════════════════════ */
+function render(s) {
+  if (!s || s.mode === "idle") return;
+  clearCardRegistry();   // drop stale ids from previous frame
+  renderTopbar(s);
+  renderStatBars(s);
+  renderArenaAndHand();
+  renderLog(s);
+
+  if (s.promotion && s.promotion.player_idx === s.human_player) {
+    renderPromotion(s);
+  } else {
+    document.getElementById("promo-modal").classList.remove("open");
+  }
+  if (s.mode === "over") {
+    stopPoll();
+    showGameOver(s);
+  }
+}
+function renderArenaAndHand() {
+  if (!state) return;
+  clearCardRegistry();
+  renderArena(state);
+  renderHand(state);
+}
+
+function renderTopbar(s) {
+  const badge = document.getElementById("turn-badge");
+  const dots  = document.getElementById("bot-dots");
+  const btn   = document.getElementById("end-turn-btn");
+  if (s.pending_bot) {
+    badge.textContent = `Turn ${s.turn} · Bot`;
+    badge.className   = "turn-badge bot";
+  } else if (s.is_my_turn) {
+    badge.textContent = `Turn ${s.turn} · Your turn`;
+    badge.className   = "turn-badge my";
+  } else {
+    badge.textContent = `Turn ${s.turn}`;
+    badge.className   = "turn-badge";
+  }
+  dots.classList.toggle("on", !!s.pending_bot);
+  btn.disabled = !s.is_my_turn || s.mode === "over";
+}
+
+function renderStatBars(s) {
+  document.getElementById("opp-stats").innerHTML = `
+    ${koPipsHtml(s.opp.ko_count)}<span class="label">Opp KOs</span>
+    <span class="spacer"></span>
+    <span class="label">Hand</span>
+    <span class="val">${s.opp.hand_size}</span>
+    ${pileButtonHtml(s.opp.deck_size,    null,               true,  "opp")}
+    ${pileButtonHtml(s.opp.discard_size, s.opp.discard_top,  false, "opp")}
+  `;
+  document.getElementById("my-stats").innerHTML = `
+    ${koPipsHtml(s.my.ko_count)}<span class="label">My KOs</span>
+    <span class="spacer"></span>
+    <span class="flag ${s.energy_used    ? "off" : "on"}">⚡ Energy</span>
+    <span class="flag ${s.supporter_used ? "off" : "on"}">📣 Supporter</span>
+    ${pileButtonHtml(s.my.deck_size,    null,             true,  "my")}
+    ${pileButtonHtml(s.my.discard_size, s.my.discard_top, false, "my")}
+  `;
+}
+function koPipsHtml(n) {
+  let h = '<div class="ko-track">';
+  for (let i = 0; i < 6; i++) h += `<div class="ko-pip${i < n ? " on" : ""}"></div>`;
+  return h + "</div>";
+}
+function pileButtonHtml(count, topCard, isDeck, side) {
+  let inner;
+  if (isDeck) {
+    inner = `<div class="pile-card dashed">🂠</div>`;
+  } else if (topCard && topCard.img) {
+    inner = `<div class="pile-card"><img src="${esc(topCard.img)}" alt=""></div>`;
+  } else {
+    inner = `<div class="pile-card dashed">${count > 0 ? "—" : "—"}</div>`;
+  }
+  const click = isDeck ? "disabled" : `data-discard-side="${side}"`;
+  return `<button class="pile" ${click} title="${isDeck ? "Deck" : "Click to view discard"}: ${count}">
+    ${inner}
+    <div class="pile-label">${isDeck ? "Deck" : "Discard"} ${count}</div>
+  </button>`;
+}
+
+/* ── Arena ──────────────────────────────────────────────── */
+function renderArena(s) {
+  const oa = document.getElementById("opp-active");
+  const ob = document.getElementById("opp-bench");
+  const ma = document.getElementById("my-active");
+  const mb = document.getElementById("my-bench");
+
+  oa.innerHTML = s.opp.active ? activeCardHtml(s.opp.active, false, s) : `<div class="empty-active">·</div>`;
+  ma.innerHTML = s.my.active  ? activeCardHtml(s.my.active,  true,  s) : `<div class="empty-active">·</div>`;
+
+  ob.innerHTML = "";
+  for (let i = 0; i < 5; i++) {
+    const p = s.opp.bench[i];
+    ob.insertAdjacentHTML("beforeend", p ? benchCardHtml(p, false, -1, s) : `<div class="empty-slot">·</div>`);
+  }
+  mb.innerHTML = "";
+  for (let i = 0; i < 5; i++) {
+    const p = s.my.bench[i];
+    mb.insertAdjacentHTML("beforeend", p ? benchCardHtml(p, true,  i,  s) : `<div class="empty-slot">·</div>`);
+  }
+}
+
+function activeCardHtml(p, isMine, s) {
+  const color = hpColor(p.hp_pct);
+  const img = p.img
+    ? `<img class="card-img" src="${esc(p.img)}" alt="${esc(p.name)}">`
+    : `<div class="card-img-ph">${esc(p.name)}</div>`;
+  const energy = energyHtml(p.energy);
+  const cardId = registerCard(p);
+
+  let cls = "", click = "", title = `${p.name} · ${p.current_hp}/${p.hp} HP · click to view`;
+
+  if (isMine) {
+    if (selectedHand !== null) {
+      const tgt = findTargetAction(0);
+      if (tgt) {
+        cls   = "target";
+        click = `data-action="${tgt.action}"`;
+        title = `${p.name} · click to ${selectedHand.mode === "energy" ? "attach energy" : "heal"}`;
+      } else {
+        cls = "";
+      }
+    } else if (s.is_my_turn && (0 in s.legal_attach)) {
+      cls   = "legal";
+      click = `data-action="${s.legal_attach[0]}"`;
+      title = `${p.name} · click to attach energy`;
+    }
+  }
+
+  // Attacks: only show when it's my active, my turn, not targeting
+  let attacks = "";
+  if (isMine && s.is_my_turn && selectedHand === null && p.attacks) {
+    attacks = `<div class="attacks">` + p.attacks.map((a, ai) => {
+      const legal = ai in s.legal_attacks;
+      const cost  = a.cost.map(c => `<div class="cost-pip" style="background:${ENERGY_COLOR[c.type] || '#888'}"></div>`).join("");
+      return `
+        <button class="attack-btn ${legal ? "legal" : ""}"
+                ${legal ? `data-attack-action="${s.legal_attacks[ai]}"` : "disabled"}>
+          <div class="attack-cost">${cost}</div>
+          <span class="name">${esc(a.name)}</span>${a.damage ? `<span class="dmg">${a.damage}</span>` : ""}
+        </button>`;
+    }).join("") + `</div>`;
+  }
+
+  return `
+    <div class="card active ${cls}" ${click} data-card-id="${cardId}" title="${esc(title)}">
+      ${img}
+      <div class="card-name">${esc(p.name)}</div>
+      <div class="card-stage">${esc(p.stage)}</div>
+      <div class="hp-bar"><div class="hp-fill" style="width:${p.hp_pct}%;background:${color}"></div></div>
+      <div class="hp-text">${p.current_hp} / ${p.hp} HP</div>
+      <div class="energy-row">${energy}</div>
+      ${attacks}
+    </div>`;
+}
+
+function benchCardHtml(p, isMine, benchIdx, s) {
+  const color = hpColor(p.hp_pct);
+  const img = p.img
+    ? `<img class="card-img" src="${esc(p.img)}" alt="${esc(p.name)}">`
+    : `<div class="card-img-ph">${esc(p.name)}</div>`;
+  const energy = energyHtml(p.energy);
+  const cardId = registerCard(p);
+  const slot   = benchIdx + 1;
+
+  let cls = "", click = "", title = `${p.name} · ${p.current_hp}/${p.hp} HP · click to view`;
+
+  if (isMine) {
+    if (selectedHand !== null) {
+      const tgt = findTargetAction(slot);
+      if (tgt) {
+        cls   = "target";
+        click = `data-action="${tgt.action}"`;
+        title = `${p.name} · click to ${selectedHand.mode === "energy" ? "attach energy" : "heal"}`;
+      }
+    } else if (s.is_my_turn && (slot in s.legal_attach)) {
+      cls   = "legal";
+      click = `data-action="${s.legal_attach[slot]}"`;
+      title = `${p.name} · click to attach energy`;
+    }
+  }
+
+  return `
+    <div class="card bench ${cls}" ${click} data-card-id="${cardId}" title="${esc(title)}">
+      ${img}
+      <div class="card-name">${esc(p.name)}</div>
+      <div class="hp-bar"><div class="hp-fill" style="width:${p.hp_pct}%;background:${color}"></div></div>
+      <div class="hp-text">${p.current_hp} / ${p.hp}</div>
+      <div class="energy-row">${energy}</div>
+    </div>`;
+}
+
+function energyHtml(arr) {
+  if (!arr || !arr.length) return "";
+  let html = "";
+  for (const e of arr) {
+    for (let i = 0; i < e.count; i++) {
+      html += `<div class="energy-pip" style="background:${e.color}" title="${e.type}">${ENERGY_LETTER[e.type] || "?"}</div>`;
+    }
+  }
+  return html;
+}
 
 /* ── Hand ───────────────────────────────────────────────── */
-function rHand(s){
-  const w=document.getElementById('hcards');
-  document.getElementById('hcnt').textContent=`${s.my.hand.length} cards`;
-  w.innerHTML='';
-  s.my.hand.forEach((c,i)=>{
-    const acts=s.legal_hand[i]||[],lg=acts.length>0,sel=s.selected===i;
-    const cls=lg?'legal':sel?'sel':'';
-    const oc=lg&&s.is_my_turn?`onclick="hClick(${i})"`:''
-    const img=c.img?`<img class="ci" src="${c.img}">`:`<div class="cph">${c.name}</div>`;
-    const tp=c.card_type==='pokemon'?(c.stage||'Pokémon'):c.card_type==='energy'?c.energy_type:c.card_type;
-    const badge=lg&&acts.length>1?`<div class="nb">${acts.length}</div>`:'';
-    w.innerHTML+=`<div class="hc ${cls}" ${oc} oncontextmenu="event.preventDefault();zoom(${ej(c)})" title="${c.name} · Right-click to zoom">
-      ${img}${badge}<div class="hn">${c.name}</div><div class="ht2">${tp}</div></div>`;
+function renderHand(s) {
+  document.getElementById("hand-count").textContent = `${s.my.hand.length} cards`;
+  const wrap = document.getElementById("hand-cards");
+  wrap.innerHTML = "";
+
+  s.my.hand.forEach((c, i) => {
+    const acts        = s.legal_hand[i] || [];
+    const isLegal     = acts.length > 0;
+    const isSelected  = selectedHand && selectedHand.handIdx === i;
+
+    let cls = "";
+    if      (isSelected) cls = "selected";
+    else if (isLegal)    cls = "legal";
+    else                 cls = "disabled";
+
+    const img = c.img
+      ? `<img class="card-img" src="${esc(c.img)}" alt="${esc(c.name)}">`
+      : `<div class="card-img-ph">${esc(c.name)}</div>`;
+
+    const typeLabel = c.card_type === "pokemon"
+      ? (c.stage || "Pokémon")
+      : c.card_type === "energy"
+        ? c.energy_type
+        : c.card_type[0].toUpperCase() + c.card_type.slice(1);
+
+    // Badge: count of distinct "destination" choices for non-energy multi-action cards
+    const isEnergy = s.energy_hand_indices.includes(i);
+    const showBadge = isLegal && !isEnergy && acts.length > 1;
+    const badge = showBadge ? `<div class="badge">${acts.length}</div>` : "";
+
+    const banner = isSelected ? `<div class="selection-banner">PICK TARGET</div>` : "";
+
+    const cardId = registerCard(c);
+    wrap.insertAdjacentHTML("beforeend", `
+      <div class="hand-card ${cls}" data-hand-idx="${i}" data-card-id="${cardId}"
+           title="${esc(c.name)}">
+        ${img}${badge}
+        <div class="card-name">${esc(c.name)}</div>
+        <div class="card-type">${esc(typeLabel)}</div>
+        ${banner}
+      </div>`);
   });
 }
-
-function hClick(i){
-  if(!S||!S.is_my_turn)return;
-  const acts=S.legal_hand[i]||[];if(!acts.length)return;
-  if(acts.length===1){act(acts[0].action);return;}
-  showAM(S.my.hand[i].name,acts);
-}
-
-/* ── Action modal ───────────────────────────────────────── */
-function showAM(title,acts){
-  document.getElementById('am-t').textContent=`${title} — choose target`;
-  const l=document.getElementById('am-l');l.innerHTML='';
-  acts.forEach(a=>{
-    const b=document.createElement('button');b.className='mb';b.textContent=dA(a);b.onclick=()=>act(a.action);l.appendChild(b);
-  });
-  const c=document.createElement('button');c.className='mb cancel';c.textContent='✕ Cancel';c.onclick=closeAM;l.appendChild(c);
-  document.getElementById('am').classList.add('open');
-}
-function closeAM(){document.getElementById('am').classList.remove('open');}
-document.getElementById('am').addEventListener('click',e=>{if(e.target===document.getElementById('am'))closeAM();});
-
-function dA(a){
-  if(!S)return a.type;
-  switch(a.type){
-    case 'ATTACH_ENERGY':return a.params.slot===0?`Attach to Active (${S.my.active?.name||'?'})`:
-      `Attach to ${S.my.bench[a.params.slot-1]?.name||'bench slot '+(a.params.slot-1)}`;
-    case 'PLAY_POKEMON':return `Bench ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
-    case 'EVOLVE':return `Evolve ${a.params.slot===5?S.my.active?.name:S.my.bench[a.params.slot]?.name||'?'}`;
-    case 'USE_ITEM':return `Use ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
-    case 'USE_SUPPORTER':return `Play ${S.my.hand[a.params.hand_idx]?.name||'?'}`;
-    case 'ATTACK':return `⚔ ${S.my.active?.attacks?.[a.params.atk_idx]?.name||'?'}`;
-    default:return a.type;
-  }
-}
-
-/* ── Promotion ──────────────────────────────────────────── */
-function showPromo(s){
-  const el=document.getElementById('pm-ch');el.innerHTML='';
-  s.promotion.bench.forEach((p,i)=>{
-    const idx=s.legal_promote[i];if(idx===undefined)return;
-    const hc=hCol(p.hp_pct);
-    const img=p.img?`<img class="ci" src="${p.img}">`:`<div class="cph">${p.name}</div>`;
-    const b=document.createElement('div');b.className='card cb legal';b.style.cursor='pointer';
-    b.innerHTML=`${img}<div class="cn" style="text-align:center">${p.name}</div>
-      <div class="hbw"><div class="hbf" style="width:${p.hp_pct}%;background:${hc}"></div></div>
-      <div class="ht" style="text-align:center">${p.current_hp}/${p.hp}</div>`;
-    b.onclick=()=>act(idx);el.appendChild(b);
-  });
-  document.getElementById('pm').classList.add('open');
-}
-
-/* ── Card zoom ──────────────────────────────────────────── */
-function zoom(card){
-  const img=document.getElementById('zm-img');
-  if(card.img){img.src=card.img;img.style.display='block';}else{img.style.display='none';}
-  document.getElementById('zm-name').textContent=card.name||'';
-  let sub='';
-  if(card.card_type==='pokemon')sub=`${card.stage||''} Pokémon`;
-  else if(card.card_type==='energy')sub=`${card.energy_type||''} Energy`;
-  else sub=`${card.card_type||''} — ${FX[card.effect||'']||card.effect||''}`;
-  document.getElementById('zm-sub').textContent=sub;
-  if(card.hp){
-    const hc=hCol(card.hp_pct||100);
-    document.getElementById('zm-hp').innerHTML=`<span style="color:${hc};font-weight:700">${card.current_hp}/${card.hp} HP</span>
-      <div style="margin-top:3px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden">
-        <div style="width:${card.hp_pct||100}%;height:100%;background:${hc};border-radius:2px"></div></div>`;
-  }else{document.getElementById('zm-hp').innerHTML='';}
-  const ee=document.getElementById('zm-en');
-  if(card.energy&&card.energy.length){
-    ee.innerHTML='<span style="font-size:.6rem;color:var(--dim)">Energy: </span>'+
-      card.energy.map(e=>`<div class="ep" style="background:${e.color};width:15px;height:15px;font-size:.46rem">${EL[e.type]||'?'}</div>`.repeat(e.count)).join('');
-  }else{ee.innerHTML='';}
-  const ae=document.getElementById('zm-atks');
-  if(card.attacks&&card.attacks.length){
-    ae.innerHTML=card.attacks.map(a=>{
-      const co=a.cost.map(c=>`<div class="ep" style="background:${EC[c.type]||'#888'};width:14px;height:14px;font-size:.44rem">${EL[c.type]||'?'}</div>`).join('');
-      return `<div class="za"><div class="za-top"><div class="za-co">${co}</div><div class="za-nm">${a.name}</div>${a.damage?`<div class="za-dm">${a.damage}</div>`:''}</div>${a.effect?`<div class="za-fx">${FX[a.effect]||a.effect}</div>`:''}</div>`;
-    }).join('');
-  }else{ae.innerHTML='';}
-  document.getElementById('zm').classList.add('open');
-}
-function czoom(e){if(e&&e.target!==document.getElementById('zm')&&e.target.id!=='zm-close')return;document.getElementById('zm').classList.remove('open');}
 
 /* ── Log ────────────────────────────────────────────────── */
-function rLog(s){
-  const el=document.getElementById('log');
-  el.innerHTML=s.log.map(m=>{
-    const cls=m.startsWith('Bot')?'bot':m.startsWith('You')?'me':(m.startsWith('---')||m.startsWith('New'))?'ev':'';
-    return `<p class="${cls}">${esc(m)}</p>`;
-  }).join('');
-  el.scrollTop=el.scrollHeight;
+function renderLog(s) {
+  const el = document.getElementById("log");
+  el.innerHTML = s.log.map(msg => {
+    let cls = "";
+    if      (msg.startsWith("Bot")) cls = "bot";
+    else if (msg.startsWith("You")) cls = "me";
+    else if (msg.startsWith("---") || msg.startsWith("New")) cls = "ev";
+    return `<p class="${cls}">${esc(msg)}</p>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
 }
 
-/* ── Game over ──────────────────────────────────────────── */
-function showGO(s){
-  const msg=document.getElementById('go-msg'),sub=document.getElementById('go-sub');
-  if(s.winner===s.human_player){msg.textContent='🎉 You Win!';msg.style.color='var(--gr)';}
-  else if(s.winner===-1){msg.textContent='Draw';msg.style.color='var(--yl)';}
-  else{msg.textContent='Bot Wins!';msg.style.color='var(--rd)';}
-  sub.textContent={ko:'by KO',deckout:'by deck-out',timeout:'time limit','':''}[s.win_reason]||'';
-  document.getElementById('gom').classList.add('open');
-}
+/* ════════════════════════════════════════════════════════════════
+   GLOBAL EVENT HANDLERS  (single delegation point)
+═════════════════════════════════════════════════════════════════ */
+document.addEventListener("click", (e) => {
+  // Lobby deck-buttons
+  const deckBtn = e.target.closest("[data-deck]");
+  if (deckBtn) { startGame(deckBtn.dataset.deck); return; }
 
-/* ── Helpers ────────────────────────────────────────────── */
-function hCol(p){return p>50?'var(--gr)':p>25?'var(--yl)':'var(--rd)';}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function ej(o){return JSON.stringify(o).replace(/"/g,'&quot;');}
+  // Modal background close
+  if (e.target.id === "zoom-modal")    { closeZoom();        return; }
+  if (e.target.id === "action-modal")  { closeActionModal(); return; }
+  if (e.target.id === "discard-modal") { closeDiscard();     return; }
+
+  // Attack-button on active card (must run BEFORE the parent card click handler)
+  const atkBtn = e.target.closest("[data-attack-action]");
+  if (atkBtn) {
+    e.stopPropagation();
+    sendAction(parseInt(atkBtn.dataset.attackAction, 10));
+    return;
+  }
+
+  // Pile buttons (discard viewer)
+  const pile = e.target.closest("[data-discard-side]");
+  if (pile) { openDiscard(pile.dataset.discardSide); return; }
+
+  // Hand cards
+  const handCard = e.target.closest(".hand-card");
+  if (handCard) {
+    const idx = parseInt(handCard.dataset.handIdx, 10);
+    handCardClick(idx, e);
+    return;
+  }
+
+  // Board cards (active or bench)
+  const boardCard = e.target.closest(".card.active, .card.bench");
+  if (boardCard) {
+    // Action click? (data-action set on legal/target cards)
+    const actionAttr = boardCard.getAttribute("data-action");
+    if (actionAttr !== null) {
+      sendAction(parseInt(actionAttr, 10));
+      return;
+    }
+    // Otherwise, left-click = zoom
+    const cardId = parseInt(boardCard.dataset.cardId, 10);
+    const card   = cardRegistry.get(cardId);
+    if (card) showZoom(card);
+    return;
+  }
+});
+
+// Right-click anywhere on a card with data-card-id = zoom
+document.addEventListener("contextmenu", (e) => {
+  const z = e.target.closest("[data-card-id]");
+  if (!z) return;
+  e.preventDefault();
+  const card = cardRegistry.get(parseInt(z.dataset.cardId, 10));
+  if (card) showZoom(card);
+});
+
+// Escape: close modals / cancel target
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const open = id => document.getElementById(id).classList.contains("open");
+  if (open("zoom-modal"))    { closeZoom();        return; }
+  if (open("action-modal"))  { closeActionModal(); return; }
+  if (open("discard-modal")) { closeDiscard();     return; }
+  if (selectedHand) cancelTargeting();
+});
+
+// Topbar / banner / replay / zoom-close buttons
+document.getElementById("end-turn-btn").addEventListener("click", endTurn);
+document.getElementById("new-game-btn").addEventListener("click", showLobby);
+document.getElementById("target-banner").addEventListener("click", cancelTargeting);
+document.getElementById("zoom-close-btn").addEventListener("click", closeZoom);
+document.getElementById("discard-close").addEventListener("click", closeDiscard);
+document.getElementById("gameover-replay").addEventListener("click", showLobby);
+
+/* ════════════════════════════════════════════════════════════════
+   UTILS
+═════════════════════════════════════════════════════════════════ */
+function hpColor(pct) {
+  if (pct > 50) return "var(--green)";
+  if (pct > 25) return "var(--yellow)";
+  return "var(--red)";
+}
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 </script>
 </body>
 </html>

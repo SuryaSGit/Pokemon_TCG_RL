@@ -175,7 +175,14 @@ def _promotion_pending(gs: GameState) -> dict | None:
 
 
 def build_state_json() -> dict:
-    """Serialise the full visible game state for the frontend."""
+    """Serialise the full visible game state for the frontend.
+
+    Output contract:
+      legal_hand[hand_idx] = list of action records for that card.
+      Each record is {action: int, type: str, params: dict, target?: dict}
+      where `target` describes the target Pokémon (slot, name) for cards
+      that need a target picker (energy attach, heal items).
+    """
     g   = _game
     env = g["env"]
     if env is None:
@@ -189,64 +196,88 @@ def build_state_json() -> dict:
 
     legal = _build_legal_set(env, h) if not g["pending"] else set()
 
-    # Work out which hand cards are legal for each action type
-    legal_hand = {}   # hand_idx -> list of action descriptions
-    for action_idx in legal:
-        atype, params = ActionMapper.decode(action_idx)
+    # ── Bucket actions by action type ────────────────────────────────
+    by_type: dict[ActionType, list[tuple[int, dict]]] = {t: [] for t in ActionType}
+    for aidx in legal:
+        atype, params = ActionMapper.decode(aidx)
+        by_type[atype].append((aidx, params))
+
+    # ── Helper: describe a target Pokémon from a slot index ─────────
+    def target_desc(slot: int) -> dict:
+        """slot 0 = active; 1..5 = bench[slot-1]"""
+        if slot == 0:
+            return {"slot": 0, "name": me.active.name if me.active else "?", "where": "active"}
+        bi = slot - 1
+        name = me.bench[bi].name if 0 <= bi < len(me.bench) else "?"
+        return {"slot": slot, "name": name, "where": "bench", "bench_idx": bi}
+
+    # ── Build legal_hand: each hand card → list of actions ───────────
+    legal_hand: dict[int, list] = {}
+
+    # Hand-indexed actions (PLAY_POKEMON, USE_ITEM, USE_SUPPORTER, EVOLVE)
+    for atype in (ActionType.PLAY_POKEMON, ActionType.USE_ITEM,
+                  ActionType.USE_SUPPORTER, ActionType.EVOLVE):
+        for aidx, params in by_type[atype]:
+            hi = params.get("hand_idx", -1)
+            if hi < 0:
+                continue
+            entry = {"action": aidx, "type": atype.name, "params": params}
+            if atype == ActionType.EVOLVE:
+                # Evolve target slot: 0..4 = bench, 5 = active. Convert to our slot scheme.
+                slot = params["slot"]
+                ui_slot = 0 if slot == 5 else slot + 1   # active=0, bench[i]=i+1
+                entry["target"] = target_desc(ui_slot)
+            legal_hand.setdefault(hi, []).append(entry)
+
+    # Energy cards: ATTACH_ENERGY is keyed by slot, not hand_idx.
+    # Map all attach actions onto every energy card in hand so any of them
+    # is a valid click target visually.  Engine consumes whichever Energy is found first.
+    attach_actions = by_type[ActionType.ATTACH_ENERGY]
+    if attach_actions:
+        for hi, card in enumerate(me.hand):
+            if not isinstance(card, EnergyCard):
+                continue
+            for aidx, params in attach_actions:
+                slot = params["slot"]
+                legal_hand.setdefault(hi, []).append({
+                    "action": aidx,
+                    "type":   "ATTACH_ENERGY",
+                    "params": params,
+                    "target": target_desc(slot),
+                })
+
+    # ── Slot-keyed lookups for direct clicks on Pokémon ──────────────
+    legal_attack: dict[int, int]  = {}
+    legal_attach: dict[int, int]  = {}
+    legal_promote: dict[int, int] = {}
+
+    for aidx, params in by_type[ActionType.ATTACK]:
+        legal_attack[params["atk_idx"]] = aidx
+    for aidx, params in by_type[ActionType.ATTACH_ENERGY]:
+        legal_attach[params["slot"]] = aidx
+    for aidx, params in by_type[ActionType.PROMOTE]:
+        legal_promote[params["bench_slot"]] = aidx
+
+    # ── Discard pile (full list, newest last) ────────────────────────
+    discard_all     = [_serialize_card(c, i) for i, c in enumerate(me.discard)]
+    opp_discard_all = [_serialize_card(c, i) for i, c in enumerate(opp.discard)]
+    discard_top     = discard_all[-1]     if discard_all     else None
+    opp_discard_top = opp_discard_all[-1] if opp_discard_all else None
+
+    # ── Hand-card categorisation flags ───────────────────────────────
+    # Energy cards in hand (index list)
+    energy_hand_indices = [i for i, c in enumerate(me.hand) if isinstance(c, EnergyCard)]
+    # Heal items currently target only the active in this engine; we still flag
+    # them for the UI so it can show a clear "tap active to heal" affordance.
+    heal_hand_indices: list[int] = []
+    for aidx, params in by_type[ActionType.USE_ITEM]:
         hi = params.get("hand_idx", -1)
-        if hi >= 0:
-            if hi not in legal_hand:
-                legal_hand[hi] = []
-            legal_hand[hi].append({"action": action_idx, "type": atype.name, "params": params})
-
-    # Energy cards: map them to ATTACH_ENERGY actions by finding the first energy
-    # card in hand and registering all attach slots against it (and any duplicates)
-    energy_hand_indices = [
-        i for i, c in enumerate(me.hand) if isinstance(c, EnergyCard)
-    ]
-    attach_actions = [
-        {"action": action_idx, "type": "ATTACH_ENERGY", "params": params}
-        for action_idx in legal
-        for atype, params in [ActionMapper.decode(action_idx)]
-        if atype == ActionType.ATTACH_ENERGY
-    ]
-    if attach_actions and energy_hand_indices:
-        # Only the FIRST energy card in hand will actually be consumed;
-        # map all attach targets to the first energy card index so it's clickable.
-        first_energy = energy_hand_indices[0]
-        if first_energy not in legal_hand:
-            legal_hand[first_energy] = []
-        # Avoid duplicates (already added via hand_idx path, though attach doesn't use hand_idx)
-        existing_types = {a["type"] for a in legal_hand[first_energy]}
-        for a in attach_actions:
-            if "ATTACH_ENERGY" not in existing_types:
-                legal_hand[first_energy].append(a)
-                existing_types.add("ATTACH_ENERGY")
-
-    # Legal attack indices
-    legal_attacks = {}
-    for action_idx in legal:
-        atype, params = ActionMapper.decode(action_idx)
-        if atype == ActionType.ATTACK:
-            legal_attacks[params["atk_idx"]] = action_idx
-
-    # Legal attach slots (0=active, 1-5=bench)
-    legal_attach = {}
-    for action_idx in legal:
-        atype, params = ActionMapper.decode(action_idx)
-        if atype == ActionType.ATTACH_ENERGY:
-            legal_attach[params["slot"]] = action_idx
-
-    # Legal promote slots
-    legal_promote = {}
-    for action_idx in legal:
-        atype, params = ActionMapper.decode(action_idx)
-        if atype == ActionType.PROMOTE:
-            legal_promote[params["bench_slot"]] = action_idx
-
-    # Discard top card (last element)
-    discard_top = _serialize_card(me.discard[-1], -1) if me.discard else None
-    opp_discard_top = _serialize_card(opp.discard[-1], -1) if opp.discard else None
+        if hi < 0 or hi >= len(me.hand):
+            continue
+        card = me.hand[hi]
+        if isinstance(card, TrainerCard) and card.effect in ("heal_active_20", "heal_active_30"):
+            if hi not in heal_hand_indices:
+                heal_hand_indices.append(hi)
 
     return {
         "mode":          g["mode"],
@@ -261,33 +292,36 @@ def build_state_json() -> dict:
         "winner":        gs.winner,
         "win_reason":    gs.win_reason,
         "log":           g["log"][-30:],
-        "selected":      g["selected"],
 
         "my": {
-            "ko_count":    me.ko_count,
-            "deck_size":   len(me.deck),
-            "hand":        [_serialize_card(c, i) for i, c in enumerate(me.hand)],
-            "active":      _serialize_pokemon(me.active),
-            "bench":       [_serialize_pokemon(p, i) for i, p in enumerate(me.bench)],
+            "ko_count":     me.ko_count,
+            "deck_size":    len(me.deck),
+            "hand":         [_serialize_card(c, i) for i, c in enumerate(me.hand)],
+            "active":       _serialize_pokemon(me.active),
+            "bench":        [_serialize_pokemon(p, i) for i, p in enumerate(me.bench)],
             "discard_size": len(me.discard),
-            "discard_top": discard_top,
+            "discard_top":  discard_top,
+            "discard_all":  discard_all,
         },
         "opp": {
-            "ko_count":    opp.ko_count,
-            "deck_size":   len(opp.deck),
-            "hand_size":   len(opp.hand),
-            "active":      _serialize_pokemon(opp.active),
-            "bench":       [_serialize_pokemon(p, i) for i, p in enumerate(opp.bench)],
+            "ko_count":     opp.ko_count,
+            "deck_size":    len(opp.deck),
+            "hand_size":    len(opp.hand),
+            "active":       _serialize_pokemon(opp.active),
+            "bench":        [_serialize_pokemon(p, i) for i, p in enumerate(opp.bench)],
             "discard_size": len(opp.discard),
-            "discard_top": opp_discard_top,
+            "discard_top":  opp_discard_top,
+            "discard_all":  opp_discard_all,
         },
 
-        "legal_hand":    legal_hand,
-        "legal_attacks": legal_attacks,
-        "legal_attach":  legal_attach,
-        "legal_promote": legal_promote,
-        "can_end_turn":  (ActionMapper.END_TURN_IDX in legal),
-        "promotion":     _promotion_pending(gs),
+        "legal_hand":           {k: v for k, v in legal_hand.items()},
+        "legal_attacks":        legal_attack,
+        "legal_attach":         legal_attach,
+        "legal_promote":        legal_promote,
+        "energy_hand_indices":  energy_hand_indices,
+        "heal_hand_indices":    heal_hand_indices,
+        "can_end_turn":         (ActionMapper.END_TURN_IDX in legal),
+        "promotion":            _promotion_pending(gs),
     }
 
 
