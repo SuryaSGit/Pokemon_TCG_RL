@@ -232,9 +232,13 @@ def build_raichu_deck() -> List[Card]:
             Attack("Circle Circuit", 70, _e("1L2C")),
         ]))
     # Bewear x1
+    # Hammer In is split into two action slots: the "safe" 80-dmg version
+    # and a "boosted" version that does an extra 40 dmg but deals 20 to self.
+    # This lets the player explicitly choose between safe and boosted, and
+    # gives the bot two distinct actions to learn the tradeoff.
     cards.append(PokemonCard("Bewear", 130, Stage.STAGE1, "Stufful", [
-        Attack("Tackle",   40, _e("2C")),
-        Attack("Hammer In", 80, _e("3C"), effect="optional_plus40_self20"),
+        Attack("Hammer In",         80, _e("3C")),
+        Attack("Hammer In Boost",  120, _e("3C"), effect="self_damage_20"),
     ]))
     # Grubbin x1
     cards.append(PokemonCard("Grubbin", 70, Stage.BASIC, None, [
@@ -242,8 +246,8 @@ def build_raichu_deck() -> List[Card]:
     ]))
     # Togedemaru x1
     cards.append(PokemonCard("Togedemaru", 70, Stage.BASIC, None, [
-        Attack("Rollout",        0, _e("1C"), effect="coin_protect_self"),
-        Attack("Discharge",      0, _e("0C"), effect="discard_lightning_30each"),
+        Attack("Rollout",        20, _e("1C"), effect="coin_protect_self"),
+        Attack("Discharge",      0,  _e("1L"), effect="discard_lightning_30each"),
     ]))
     # Drowzee x1
     cards.append(PokemonCard("Drowzee", 70, Stage.BASIC, None, [
@@ -311,6 +315,8 @@ class GameState:
     rng: Any = None                  # seeded numpy rng
     # Per-turn transient flags (cleared each turn)
     damage_reduction: Dict[int, int] = field(default_factory=dict)   # player_idx -> reduction
+    # Last attack damage actually dealt — for log display
+    last_attack_damage: int = 0
 
     def opponent(self) -> int:
         return 1 - self.current_player
@@ -559,17 +565,63 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
     mask[ActionMapper.END_TURN_IDX] = 1.0
 
     # --- ATTACH_ENERGY ---
-    # Only allow attaching to Pokémon that still need more energy for at least
-    # one of their attacks. A Pokémon that can already pay every one of its
-    # attacks does not benefit from more energy — attaching there wastes the
-    # turn's single energy attachment.
+    # A Pokémon "still needs energy" if there is at least one attack on
+    # itself OR on a future evolution form (whose evolution card is
+    # available in hand/deck/discard) that it cannot yet pay for.
+    #
+    # Special case: certain attacks scale with the number of energy attached
+    # (e.g. Togedemaru's Discharge does 30× the lightning energy discarded).
+    # Pokémon with such attacks have effectively unbounded energy demand
+    # and are always eligible to receive more energy.
     has_energy_in_hand = any(isinstance(c, EnergyCard) for c in me.hand)
     if has_energy_in_hand and not me.energy_used:
+
+        # Attacks whose damage scales with attacker's own energy → uncappable.
+        SCALING_EFFECTS = {"discard_lightning_30each"}
+
+        def _has_scaling_attack(p: PokemonCard) -> bool:
+            return any(a.effect in SCALING_EFFECTS for a in p.attacks)
+
+        # Build a map: pokemon name → all evolution forms reachable from it
+        # via cards we currently own (hand + deck + discard).  This lets a
+        # benched Rockruff "look ahead" to Lycanroc's max attack cost when
+        # deciding whether to keep stacking energy.
+        all_owned: List[PokemonCard] = []
+        for c in me.hand + me.deck + me.discard:
+            if isinstance(c, PokemonCard):
+                all_owned.append(c)
+
+        def _evolutions_of(p: PokemonCard, seen=None) -> List[PokemonCard]:
+            """Recursively collect every evolution form reachable from p
+            via owned evolution cards. Includes p itself."""
+            if seen is None:
+                seen = set()
+            seen.add(id(p))
+            chain = [p]
+            for c in all_owned:
+                if c.evolves_from == p.name and id(c) not in seen:
+                    chain.extend(_evolutions_of(c, seen))
+            return chain
+
         def _needs_more_energy(p: PokemonCard) -> bool:
-            """True if p has at least one attack it cannot yet afford."""
             if p is None or not p.attacks:
                 return False
-            return any(not can_pay_cost(p, atk.energy_cost) for atk in p.attacks)
+            chain = _evolutions_of(p)
+            for form in chain:
+                # Scaling attacks → infinite need
+                if _has_scaling_attack(form):
+                    return True
+                # Otherwise: can we afford every attack on this form yet?
+                # Note: form's energy is what p has now (energy carries on evolve).
+                hypothetical = PokemonCard(
+                    form.name, form.hp, form.stage, form.evolves_from,
+                    form.attacks
+                )
+                hypothetical.energy = dict(p.energy)
+                for atk in form.attacks:
+                    if not can_pay_cost(hypothetical, atk.energy_cost):
+                        return True
+            return False
 
         # Attach to active
         if me.active is not None and _needs_more_energy(me.active):
@@ -732,10 +784,9 @@ class GameEngine:
         me.supporter_used = False
         # Clear damage reduction from my previous turn
         gs.damage_reduction.pop(gs.current_player, None)
-        # Draw a card (first player doesn't draw on turn 1 in standard rules,
-        # but we allow it for simplicity / symmetry)
-        if gs.turn_number > 1 or True:  # always draw for simplicity
-            self._draw_n(gs, gs.current_player, 1)
+        # Draw a card. Standard rules say the first player skips draw on
+        # turn 1; we always draw for symmetry / simplicity in self-play.
+        self._draw_n(gs, gs.current_player, 1)
 
     def apply_action(self, gs: GameState, action_idx: int) -> Tuple[float, bool]:
         """
@@ -786,14 +837,19 @@ class GameEngine:
         me = gs.current()
         if me.energy_used:
             return
-        # Find first energy card in hand
+        # Validate target FIRST so we don't waste an energy card on an
+        # invalid slot.
+        target = me.active if slot == 0 else (
+            me.bench[slot - 1] if 0 <= slot - 1 < len(me.bench) else None
+        )
+        if target is None:
+            return
+        # Find first energy card in hand and attach it
         for i, c in enumerate(me.hand):
             if isinstance(c, EnergyCard):
                 me.hand.pop(i)
-                target = me.active if slot == 0 else (me.bench[slot - 1] if slot - 1 < len(me.bench) else None)
-                if target is not None:
-                    target.energy[c.energy_type] = target.energy.get(c.energy_type, 0) + 1
-                    me.energy_used = True
+                target.energy[c.energy_type] = target.energy.get(c.energy_type, 0) + 1
+                me.energy_used = True
                 return
 
     def _play_pokemon(self, gs: GameState, hand_idx: int) -> None:
@@ -827,19 +883,21 @@ class GameEngine:
             self._great_ball(gs, gs.current_player)
 
     def _great_ball(self, gs: GameState, pidx: int) -> None:
-        """Look at top 7; take a pokemon, shuffle rest."""
+        """Look at top 7; take a Pokémon, shuffle the rest back into the deck."""
         p = gs.players[pidx]
         top7 = p.deck[:7]
         rest = p.deck[7:]
         pokemon_found = [c for c in top7 if isinstance(c, PokemonCard)]
         non_pokemon   = [c for c in top7 if not isinstance(c, PokemonCard)]
         if pokemon_found:
-            # Take the first pokemon found
+            # Take the first Pokémon found
             p.hand.append(pokemon_found[0])
             non_pokemon.extend(pokemon_found[1:])
-        # Shuffle rest back
-        self._shuffle(non_pokemon)
-        p.deck = non_pokemon + rest
+        # Shuffle the unchosen cards back into the entire remaining deck so
+        # the "back of the deck" isn't left in deterministic order.
+        combined = non_pokemon + rest
+        self._shuffle(combined)
+        p.deck = combined
 
     def _use_supporter(self, gs: GameState, hand_idx: int) -> None:
         me  = gs.current()
@@ -858,19 +916,31 @@ class GameEngine:
             self._draw_n(gs, gs.current_player, 3)
 
     def _promote(self, gs: GameState, bench_slot: int) -> None:
-        """Promote a benched pokemon to active after a KO (player's choice)."""
-        # The player who needs to promote is whoever has pending_promotion set.
-        # This is called as part of the *loser's* turn or as an interrupt.
-        # We check both players but only act on the one pending.
+        """Promote a benched pokemon to active after a KO (player's choice).
+
+        The player who needs to promote is whoever has pending_promotion set.
+        If the requested slot is out of range, fall back to the highest-HP
+        bench pokemon so the game cannot get stuck waiting for a promotion
+        forever (this should never happen in practice because the legal-mask
+        only exposes valid bench slots, but defensive coding matters).
+        """
         for pidx in range(2):
             p = gs.players[pidx]
-            if p.pending_promotion:
-                if bench_slot < len(p.bench):
-                    promoted = p.bench.pop(bench_slot)
-                    promoted.is_active = True
-                    p.active = promoted
-                    p.pending_promotion = False
+            if not p.pending_promotion:
+                continue
+            if not p.bench:
+                # No bench to promote from — this player loses (handled
+                # already by _handle_ko, so just clear the flag).
+                p.pending_promotion = False
                 return
+            chosen_slot = bench_slot if 0 <= bench_slot < len(p.bench) else (
+                max(range(len(p.bench)), key=lambda i: p.bench[i].current_hp)
+            )
+            promoted = p.bench.pop(chosen_slot)
+            promoted.is_active = True
+            p.active = promoted
+            p.pending_promotion = False
+            return
 
     def _evolve(self, gs: GameState, hand_idx: int, slot: int) -> None:
         """Evolve pokemon at slot (5=active, 0-4=bench) using hand_idx card."""
@@ -954,9 +1024,9 @@ class GameEngine:
                 opp.bench[bi].current_hp -= 10
                 if opp.bench[bi].current_hp <= 0:
                     self._handle_ko(gs, gs.opponent(), is_active=False, bench_idx=bi)
-        elif effect == "optional_plus40_self20":
-            # For simplicity: agent always takes the damage boost (heuristic)
-            final_damage += 40
+        elif effect == "self_damage_20":
+            # Boosted attack: damage is in atk.damage already; this just
+            # makes the attacker take 20 recoil damage.
             if me.active:
                 me.active.current_hp -= 20
         elif effect == "coin_protect_self":
@@ -977,14 +1047,25 @@ class GameEngine:
         if opp.active and opp.active.effect_flags.get("protected") == gs.turn_number - 1:
             final_damage = 0
 
+        # Record actual damage dealt for UI log
+        gs.last_attack_damage = final_damage
+
         # Deal damage to opponent's active
         if opp.active and final_damage > 0:
             opp.active.current_hp -= final_damage
 
-        # Check KO
+        # Check opponent KO
         if opp.active and opp.active.current_hp <= 0:
             reward += 1.0
             self._handle_ko(gs, gs.opponent(), is_active=True)
+            if gs.game_over:
+                reward += 10.0 if gs.winner == gs.current_player else -10.0
+
+        # Check self-KO from recoil effects (Hammer In Boost, etc.)
+        # The attacker may have just dealt damage to itself via effects above.
+        if (not gs.game_over and me.active is not None
+                and me.active.current_hp <= 0):
+            self._handle_ko(gs, gs.current_player, is_active=True)
             if gs.game_over:
                 reward += 10.0 if gs.winner == gs.current_player else -10.0
 

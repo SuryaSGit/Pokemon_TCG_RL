@@ -196,9 +196,14 @@ def score_agent(agent: PPOAgent | DQNAgent,
         if w == agent.player_idx:
             wins += 1
             if reason == "ko":
-                score     += ko_weight
-                ko_wins   += 1
+                score   += ko_weight
+                ko_wins += 1
+            elif reason == "deckout":
+                score        += deckout_weight
+                deckout_wins += 1
             else:
+                # Unexpected win reason (e.g., empty string). Count as deck-out
+                # for scoring purposes so wins always contribute something.
                 score        += deckout_weight
                 deckout_wins += 1
         elif w == -1:
@@ -322,8 +327,15 @@ def run_training(n_episodes: int = 500, eval_games: int = 100,
         if len(ppo.obs_buf) > 0:
             ppo.finish_episode(0.0); ppo.update(); ppo_turns = 0
         if dqn_prev:
-            dqn.store(*dqn_prev[:3], dqn_prev[0], True,
-                      dqn_prev[3], np.zeros(ACT_SIZE, np.float32))
+            # Episode ended without DQN getting another turn to observe
+            # the terminal state. We still record the transition with done=True
+            # so the Q-update treats it correctly. next_obs is unused (done=1
+            # zeroes the bootstrap term in the target), so we can safely use
+            # the same obs as a placeholder.
+            prev_obs, prev_action, prev_reward, prev_mask = dqn_prev
+            dqn.store(prev_obs, prev_action, prev_reward,
+                      prev_obs, True, prev_mask,
+                      np.zeros(ACT_SIZE, np.float32))
 
         recent_wins.append(senv.winner)
 
@@ -663,9 +675,11 @@ def _check_and_handle_promotion(gs: GameState, human_player: int,
                 try:
                     choice = int(raw)
                     if 0 <= choice < len(p.bench):
+                        # Capture name BEFORE step (env.step pops from bench)
+                        chosen_name = p.bench[choice].name
                         action = AM.encode(AT.PROMOTE, {"bench_slot": choice})
                         env.step(action)
-                        good(f"Sent {p.bench[choice].name if p.active is None else p.active.name} to Active!")
+                        good(f"Sent {chosen_name} to Active!")
                         break
                     print(_c(f"  Enter 0–{len(p.bench)-1}", R))
                 except (ValueError, IndexError):
@@ -815,7 +829,7 @@ def run_play(deck_choice: Optional[str] = None):
     info(f"Bot win-rate (vs random): {wr:.1%}")
 
     # Play loop
-    record = [0, 0]
+    record = [0, 0, 0]   # [wins, losses, draws]
     game_num = 0
     while True:
         game_num += 1
@@ -825,9 +839,13 @@ def run_play(deck_choice: Optional[str] = None):
             record[0] += 1
         elif winner == bot_player:
             record[1] += 1
+        else:
+            # winner == -1: draw (timeout or simultaneous)
+            record[2] += 1
 
         print(f"\n  {_c('Your record:', BLD)} {_c(record[0], G)} wins "
-              f"/ {_c(record[1], R)} losses")
+              f"/ {_c(record[1], R)} losses"
+              + (f" / {_c(record[2], Y)} draws" if record[2] else ""))
 
         again = ask("Play again? [y/n]")
         if again.lower() not in ("y", "yes", ""):
@@ -836,7 +854,7 @@ def run_play(deck_choice: Optional[str] = None):
     print()
     good("Thanks for playing!")
 
-def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0):
+def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = -1):
     """
     Run champion agent(s) against a random opponent for n_games each.
     Shows a live progress bar, per-game outcomes, and a summary table.
@@ -845,7 +863,10 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
     """
     header(f"CHAMPION BENCHMARK  ({n_games} games vs random)")
 
-    rng       = np.random.default_rng(seed if seed else int(time.time()))
+    # Treat any non-negative integer as a valid seed. Use time-based fallback
+    # only when seed < 0 (sentinel for "random"). This means --seed 0 is a
+    # reproducible run.
+    rng       = np.random.default_rng(seed if seed >= 0 else int(time.time()))
     to_bench  = []
 
     if deck is None or deck.lower() in ("lycanroc", "0"):
@@ -922,7 +943,7 @@ def run_benchmark(n_games: int = 100, deck: Optional[str] = None, seed: int = 0)
             done_pct    = (g + 1) / n_games
             filled      = int(bar_width * done_pct)
             wr_live     = wins / (g + 1)
-            score_live  = ko_wins * 5 + deckout_wins
+            score_live  = ko_wins + deckout_wins
             col         = G if wr_live >= 0.55 else (Y if wr_live >= 0.40 else R)
             bar         = f"{col}{'█' * filled}{RST}{'░' * (bar_width - filled)}"
             print(f"\r  [{bar}] {g+1:>3}/{n_games}  "
@@ -1025,7 +1046,8 @@ def main():
     elif cmd == "benchmark":
         n     = int(flag("games", 100))
         deck  = flag("deck")          # lycanroc | raichu | None → both
-        seed  = int(flag("seed", 0))
+        # Default -1 → time-based (random); any non-negative int seeds deterministically.
+        seed  = int(flag("seed", -1))
         run_benchmark(n_games=n, deck=deck, seed=seed)
 
     else:
