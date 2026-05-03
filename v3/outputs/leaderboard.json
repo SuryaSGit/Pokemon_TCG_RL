@@ -61,9 +61,18 @@
         "deckout_wins": 1854,
         "episodes": 300000,
         "champion": true
+      },
+      {
+        "timestamp": "2026-05-02 21:08",
+        "winrate": 0.986,
+        "score": 43504.0,
+        "ko_wins": 8411,
+        "deckout_wins": 1449,
+        "episodes": 150000,
+        "champion": false
       }
     ],
-    "total_episodes": 830000,
+    "total_episodes": 980000,
     "champion_score": 38889.0
   },
   "dqn": {
@@ -128,9 +137,18 @@
         "deckout_wins": 3936,
         "episodes": 300000,
         "champion": false
+      },
+      {
+        "timestamp": "2026-05-02 21:10",
+        "winrate": 0.7941,
+        "score": 29473.0,
+        "ko_wins": 5383,
+        "deckout_wins": 2558,
+        "episodes": 150000,
+        "champion": false
       }
     ],
-    "total_episodes": 830000,
+    "total_episodes": 980000,
     "champion_score": 30262.0
   }
 }

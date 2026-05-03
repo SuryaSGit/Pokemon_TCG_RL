@@ -154,12 +154,29 @@ html, body {
 
 /* Sidebar log */
 #log-hdr {
+  display: flex; align-items: center; gap: 8px;
   padding: 8px 12px;
   font-size: 0.66rem; font-weight: 700;
   color: var(--dimmer);
   text-transform: uppercase; letter-spacing: 1px;
   border-bottom: 1px solid var(--border);
 }
+#log-hdr .copy-btn {
+  margin-left: auto;
+  padding: 3px 8px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surf-2);
+  color: var(--dim);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+#log-hdr .copy-btn:hover { color: var(--text); border-color: var(--border-2); background: var(--surf-3); }
+#log-hdr .copy-btn.copied { color: var(--green); border-color: var(--green); }
 #log {
   flex: 1; overflow-y: auto;
   padding: 7px 10px;
@@ -871,7 +888,10 @@ html, body {
     </div>
 
     <div id="sidebar">
-      <div id="log-hdr">Battle Log</div>
+      <div id="log-hdr">
+        <span>Battle Log</span>
+        <button class="copy-btn" id="copy-log-btn" title="Copy battle log to clipboard">Copy</button>
+      </div>
       <div id="log"></div>
     </div>
   </div>
@@ -898,7 +918,6 @@ const EFFECT_TEXT = {
   discard_random_opponent_hand: "Shuffle a random card from opp hand into deck",
   plus30_vs_caterpie:           "+30 dmg if opp active is Caterpie",
   bench_10_any:                 "Deal 10 dmg to any benched Pokémon",
-  optional_plus40_self20:       "+40 dmg, but deal 20 to self",
   coin_protect_self:            "Flip: heads = no damage taken next turn",
   discard_lightning_30each:     "Discard all ⚡ energy: 30 dmg per discarded",
   "10x_opp_energy":             "10 dmg × opp's active energy count",
@@ -962,19 +981,38 @@ function showLobby() {
   document.getElementById("lobby").style.display = "flex";
 }
 
-async function sendAction(actionIdx) {
-  cancelTargeting();
-  closeActionModal();
-  state = await api("/api/action", { action: actionIdx });
-  render(state);
-  if (state && state.pending_bot) startPoll();
+// Guard against double-clicking: only one action in flight at a time.
+let actionInFlight = false;
+
+async function sendAction(actionIdx, attachHandIdx) {
+  if (actionInFlight) return;          // ignore double-clicks
+  actionInFlight = true;
+  try {
+    cancelTargeting();
+    closeActionModal();
+    const body = { action: actionIdx };
+    if (attachHandIdx !== undefined && attachHandIdx !== null) {
+      body.attach_hand_idx = attachHandIdx;
+    }
+    state = await api("/api/action", body);
+    render(state);
+    if (state && state.pending_bot) startPoll();
+  } finally {
+    actionInFlight = false;
+  }
 }
 
 async function endTurn() {
-  cancelTargeting();
-  state = await api("/api/skip_turn", {});
-  render(state);
-  if (state && state.pending_bot) startPoll();
+  if (actionInFlight) return;
+  actionInFlight = true;
+  try {
+    cancelTargeting();
+    state = await api("/api/skip_turn", {});
+    render(state);
+    if (state && state.pending_bot) startPoll();
+  } finally {
+    actionInFlight = false;
+  }
 }
 
 /* Polling: re-create only when frequency changes; never call startPoll
@@ -1148,12 +1186,14 @@ function showZoom(card) {
         `<div class="energy-pip" style="background:${ENERGY_COLOR[c.type] || '#888'};width:14px;height:14px;font-size:0.46rem">${ENERGY_LETTER[c.type] || "?"}</div>`
       ).join("");
       const fx = a.effect ? `<div class="zoom-attack-fx">${esc(EFFECT_TEXT[a.effect] || a.effect)}</div>` : "";
+      const dmgText = formatDamage(a, card.energy);
+      const showDmg = dmgText !== "0" || a.damage;   // hide for pure-utility attacks
       return `
         <div class="zoom-attack">
           <div class="zoom-attack-top">
             <div class="zoom-attack-cost">${cost}</div>
             <div class="zoom-attack-name">${esc(a.name)}</div>
-            ${a.damage ? `<div class="zoom-attack-dmg">${a.damage}</div>` : ""}
+            ${showDmg ? `<div class="zoom-attack-dmg">${dmgText}</div>` : ""}
           </div>
           ${fx}
         </div>`;
@@ -1193,7 +1233,9 @@ function describeAction(a) {
   switch (a.type) {
     case "ATTACH_ENERGY": return a.target ? `Attach to ${a.target.name}` : "Attach";
     case "PLAY_POKEMON":  return `Bench ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
-    case "EVOLVE":        return a.target ? `Evolve ${a.target.name}` : `Evolve (slot ${a.params.slot})`;
+    case "EVOLVE":        return a.target
+                            ? `Evolve ${a.target.name} (${a.target.where === "active" ? "Active" : `Bench ${a.target.bench_idx + 1}`})`
+                            : `Evolve (slot ${a.params.slot})`;
     case "USE_ITEM":      return `Use ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
     case "USE_SUPPORTER": return `Play ${state.my.hand[a.params.hand_idx]?.name || "?"}`;
     case "ATTACK":        return `⚔ ${state.my.active?.attacks?.[a.params.atk_idx]?.name || "?"}`;
@@ -1401,13 +1443,15 @@ function activeCardHtml(p, isMine, s) {
       const tgt = findTargetAction(0);
       if (tgt) {
         cls   = "target";
-        click = `data-action="${tgt.action}"`;
+        click = `data-action="${tgt.action}" data-attach-hand="${selectedHand.handIdx}"`;
         title = `${p.name} · click to ${selectedHand.mode === "energy" ? "attach energy" : "heal"}`;
       } else {
         cls = "";
       }
     } else if (s.is_my_turn && (0 in s.legal_attach)) {
       cls   = "legal";
+      // Direct click on Pokémon (not via energy card targeting): use first
+      // energy in hand by default (no data-attach-hand override).
       click = `data-action="${s.legal_attach[0]}"`;
       title = `${p.name} · click to attach energy`;
     }
@@ -1419,11 +1463,13 @@ function activeCardHtml(p, isMine, s) {
     attacks = `<div class="attacks">` + p.attacks.map((a, ai) => {
       const legal = ai in s.legal_attacks;
       const cost  = a.cost.map(c => `<div class="cost-pip" style="background:${ENERGY_COLOR[c.type] || '#888'}"></div>`).join("");
+      const dmgText = formatDamage(a, p.energy);
+      const showDmg = dmgText !== "0" || a.damage;
       return `
         <button class="attack-btn ${legal ? "legal" : ""}"
                 ${legal ? `data-attack-action="${s.legal_attacks[ai]}"` : "disabled"}>
           <div class="attack-cost">${cost}</div>
-          <span class="name">${esc(a.name)}</span>${a.damage ? `<span class="dmg">${a.damage}</span>` : ""}
+          <span class="name">${esc(a.name)}</span>${showDmg ? `<span class="dmg">${dmgText}</span>` : ""}
         </button>`;
     }).join("") + `</div>`;
   }
@@ -1456,7 +1502,7 @@ function benchCardHtml(p, isMine, benchIdx, s) {
       const tgt = findTargetAction(slot);
       if (tgt) {
         cls   = "target";
-        click = `data-action="${tgt.action}"`;
+        click = `data-action="${tgt.action}" data-attach-hand="${selectedHand.handIdx}"`;
         title = `${p.name} · click to ${selectedHand.mode === "energy" ? "attach energy" : "heal"}`;
       }
     } else if (s.is_my_turn && (slot in s.legal_attach)) {
@@ -1584,7 +1630,9 @@ document.addEventListener("click", (e) => {
     // Action click? (data-action set on legal/target cards)
     const actionAttr = boardCard.getAttribute("data-action");
     if (actionAttr !== null) {
-      sendAction(parseInt(actionAttr, 10));
+      const handAttr = boardCard.getAttribute("data-attach-hand");
+      const handIdx  = handAttr !== null ? parseInt(handAttr, 10) : null;
+      sendAction(parseInt(actionAttr, 10), handIdx);
       return;
     }
     // Otherwise, left-click = zoom
@@ -1622,6 +1670,33 @@ document.getElementById("zoom-close-btn").addEventListener("click", closeZoom);
 document.getElementById("discard-close").addEventListener("click", closeDiscard);
 document.getElementById("gameover-replay").addEventListener("click", showLobby);
 
+// Copy battle log to clipboard
+document.getElementById("copy-log-btn").addEventListener("click", async () => {
+  if (!state || !state.log || !state.log.length) return;
+  const text = state.log.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // Fallback for older browsers / non-secure contexts
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity  = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+  const btn = document.getElementById("copy-log-btn");
+  const orig = btn.textContent;
+  btn.textContent = "Copied ✓";
+  btn.classList.add("copied");
+  setTimeout(() => {
+    btn.textContent = orig;
+    btn.classList.remove("copied");
+  }, 1200);
+});
+
 /* ════════════════════════════════════════════════════════════════
    UTILS
 ═════════════════════════════════════════════════════════════════ */
@@ -1629,6 +1704,32 @@ function hpColor(pct) {
   if (pct > 50) return "var(--green)";
   if (pct > 25) return "var(--yellow)";
   return "var(--red)";
+}
+
+/**
+ * Show damage including variability so the player understands coin-flip
+ * and energy-scaling attacks. Returns the number on its own for fixed-damage
+ * attacks, or a "min–max" / "min+" / "0–N" range for variable ones.
+ */
+function formatDamage(atk, attached) {
+  const base = atk.damage || 0;
+  const fx   = atk.effect || "";
+  switch (fx) {
+    case "coin_plus10":      return `${base}–${base + 10}`;
+    case "coin_plus30":      return `${base}–${base + 30}`;
+    case "flip4_20each":     return `0–80`;
+    case "flip2_plus20each": return `${base}–${base + 40}`;
+    case "discard_lightning_30each": {
+      // Up to (lightning attached)×30
+      const l = attached
+        ? attached.find(e => e.type === "Lightning")?.count || 0
+        : 0;
+      return l > 0 ? `${l * 30}` : "0";
+    }
+    case "10x_opp_energy":   return "10× opp energy";
+    case "plus30_vs_caterpie": return `${base} (+30 vs Caterpie)`;
+    default: return `${base}`;
+  }
 }
 function esc(s) {
   return String(s ?? "")

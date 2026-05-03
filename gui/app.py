@@ -33,6 +33,13 @@ IMAGES_DIR     = os.path.join(_DIR, "pokemon_images")
 
 app = Flask(__name__, template_folder=os.path.join(_DIR, "templates"))
 
+# Effects that flag a card as a healer. Add new effect names here when
+# extending the engine — avoids hardcoding strings in multiple places.
+HEAL_EFFECTS = {"heal_active_20", "heal_active_30"}
+
+# Cap stored log size to avoid unbounded memory growth in long games.
+LOG_MAX = 200
+
 # ── Global game state (single session) ────────────────────────────────────
 _game: dict = {
     "env":          None,   # PokemonTCGEnv
@@ -41,10 +48,17 @@ _game: dict = {
     "bot_player":   None,   # 0 or 1
     "log":          [],     # list of message strings
     "pending":      False,  # True while bot is "thinking"
-    "selected":     None,   # hand card index selected by human (for two-step actions)
     "mode":         "idle", # "idle" | "playing" | "over"
 }
 _lock = threading.Lock()
+
+
+def _log(msg: str) -> None:
+    """Append a log line, trimming history to LOG_MAX."""
+    g = _game
+    g["log"].append(msg)
+    if len(g["log"]) > LOG_MAX:
+        del g["log"][:-LOG_MAX]
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -108,12 +122,14 @@ def _serialize_attack(atk) -> dict:
 def _serialize_pokemon(p: PokemonCard | None, index: int = -1) -> dict | None:
     if p is None:
         return None
+    hp_max = max(p.hp, 1)   # guard against div-by-zero
+    hp_pct = round(max(0, min(p.current_hp, hp_max)) / hp_max * 100)
     return {
         "name":     p.name,
         "hp":       p.hp,
         "current_hp": p.current_hp,
-        "hp_pct":   round(p.current_hp / p.hp * 100),
-        "stage":    STAGE_NAMES[p.stage],
+        "hp_pct":   hp_pct,
+        "stage":    STAGE_NAMES.get(p.stage, "?"),
         "evolves_from": p.evolves_from or "",
         "energy":   _serialize_energy(p.energy),
         "total_energy": p.total_energy(),
@@ -275,7 +291,7 @@ def build_state_json() -> dict:
         if hi < 0 or hi >= len(me.hand):
             continue
         card = me.hand[hi]
-        if isinstance(card, TrainerCard) and card.effect in ("heal_active_20", "heal_active_30"):
+        if isinstance(card, TrainerCard) and card.effect in HEAL_EFFECTS:
             if hi not in heal_hand_indices:
                 heal_hand_indices.append(hi)
 
@@ -371,15 +387,45 @@ def _run_bot_turn():
            and gs.current_player == bot_player
            and not any(gs.players[p].pending_promotion for p in range(2))):
 
-        action = _bot_act(env, bot, bot_player)
+        try:
+            action = _bot_act(env, bot, bot_player)
+        except Exception as e:
+            with _lock:
+                _log(f"Bot error during action selection: {e}")
+            break
         atype, params = ActionMapper.decode(action)
 
-        # Log before executing so human sees it appear then the board updates
-        msg = _action_to_log(action, gs, bot_player, prefix="Bot")
-        with _lock:
-            g["log"].append(msg)
-
-        env.step(action)
+        # For non-attack actions: log BEFORE step (the action references hand
+        # indices that will shift after step). For attacks: defer logging so
+        # we can include actual damage dealt.
+        if atype != ActionType.ATTACK:
+            msg = _action_to_log(action, gs, bot_player, prefix="Bot")
+            with _lock:
+                _log(msg)
+                try:
+                    env.step(action)
+                except Exception as e:
+                    _log(f"Bot step failed: {e}")
+                    break
+        else:
+            # Capture attack name BEFORE step (the active card might be KO'd)
+            atk_name = ""
+            if me_bot := gs.players[bot_player].active:
+                ai = params.get("atk_idx", 0)
+                if 0 <= ai < len(me_bot.attacks):
+                    atk_name = me_bot.attacks[ai].name
+            with _lock:
+                try:
+                    env.step(action)
+                except Exception as e:
+                    _log(f"Bot step failed: {e}")
+                    break
+                dmg = gs.last_attack_damage
+                _log(f"Bot used {atk_name}!" + (f" ({dmg} dmg)" if dmg else ""))
+                if gs.last_damage_prevented:
+                    _log("✓ Your protection blocked all damage!")
+                elif gs.last_damage_reduced:
+                    _log("✓ Your effect reduced bot's damage.")
 
         delay = ACTION_DELAYS.get(atype, 0.35)
         time.sleep(delay)
@@ -397,7 +443,7 @@ def _run_bot_turn():
         if gs.game_over:
             g["mode"] = "over"
             winner_label = "You win! 🎉" if gs.winner == g["human_player"] else "Bot wins!"
-            g["log"].append(f"--- GAME OVER: {winner_label} (by {gs.win_reason}) ---")
+            _log(f"--- GAME OVER: {winner_label} (by {gs.win_reason}) ---")
 
 
 def _handle_bot_promotion():
@@ -410,14 +456,23 @@ def _handle_bot_promotion():
     p = gs.players[bot_player]
     if not p.pending_promotion:
         return
+    # Defensive: if the bench is empty here, the engine should have already
+    # ended the game in _handle_ko. Clear the flag and bail to avoid a crash.
+    if not p.bench:
+        p.pending_promotion = False
+        return
 
-    # Bot picks highest HP bench pokemon
+    # Bot picks highest HP bench Pokémon
     best = max(range(len(p.bench)), key=lambda i: p.bench[i].current_hp)
     chosen_name = p.bench[best].name
     action = ActionMapper.encode(ActionType.PROMOTE, {"bench_slot": best})
     with _lock:
-        g["log"].append(f"Bot promotes {chosen_name} to Active.")
-    env.step(action)
+        _log(f"Bot promotes {chosen_name} to Active.")
+    try:
+        env.step(action)
+    except Exception as e:
+        with _lock:
+            _log(f"Bot promotion failed: {e}")
     time.sleep(0.3)
 
 
@@ -429,41 +484,36 @@ def _action_to_log(action_idx: int, gs: GameState, player_idx: int, prefix: str)
     except Exception:
         return f"{prefix}: unknown action"
 
+    # Guarded hand-index lookup: never accept negative or out-of-range values.
+    def hand_name(hi: int) -> str:
+        return me.hand[hi].name if 0 <= hi < len(me.hand) else "?"
+
     if atype == ActionType.END_TURN:
         return f"{prefix} ended their turn."
     if atype == ActionType.ATTACK:
         ai  = params.get("atk_idx", 0)
-        atk = me.active.attacks[ai] if me.active and ai < len(me.active.attacks) else None
+        atk = me.active.attacks[ai] if (me.active and 0 <= ai < len(me.active.attacks)) else None
         name = atk.name if atk else "?"
         dmg  = atk.damage if atk else 0
         return f"{prefix} used {name}!" + (f" ({dmg} dmg)" if dmg else "")
     if atype == ActionType.ATTACH_ENERGY:
         slot = params.get("slot", 0)
         tgt  = "Active" if slot == 0 else f"bench[{slot-1}]"
-        # Find energy in hand
         ename = next((c.name for c in me.hand if isinstance(c, EnergyCard)), "Energy")
         return f"{prefix} attached {ename} to {tgt}."
     if atype == ActionType.PLAY_POKEMON:
-        hi = params.get("hand_idx", 0)
-        name = me.hand[hi].name if hi < len(me.hand) else "?"
-        return f"{prefix} played {name} to bench."
+        return f"{prefix} played {hand_name(params.get('hand_idx', -1))} to bench."
     if atype == ActionType.EVOLVE:
-        hi   = params.get("hand_idx", 0)
-        name = me.hand[hi].name if hi < len(me.hand) else "?"
         slot = params.get("slot", 0)
         tgt  = "Active" if slot == 5 else f"bench[{slot}]"
-        return f"{prefix} evolved {tgt} into {name}."
+        return f"{prefix} evolved {tgt} into {hand_name(params.get('hand_idx', -1))}."
     if atype == ActionType.USE_ITEM:
-        hi   = params.get("hand_idx", 0)
-        name = me.hand[hi].name if hi < len(me.hand) else "?"
-        return f"{prefix} used item: {name}."
+        return f"{prefix} used item: {hand_name(params.get('hand_idx', -1))}."
     if atype == ActionType.USE_SUPPORTER:
-        hi   = params.get("hand_idx", 0)
-        name = me.hand[hi].name if hi < len(me.hand) else "?"
-        return f"{prefix} used supporter: {name}."
+        return f"{prefix} used supporter: {hand_name(params.get('hand_idx', -1))}."
     if atype == ActionType.PROMOTE:
         bs   = params.get("bench_slot", 0)
-        if bs < len(me.bench):
+        if 0 <= bs < len(me.bench):
             return f"{prefix} promoted {me.bench[bs].name} to Active."
         return f"{prefix} promoted a Pokémon to Active."
     return f"{prefix}: {atype.name}"
@@ -485,8 +535,17 @@ def serve_image(fname):
 
 @app.route("/api/new_game", methods=["POST"])
 def new_game():
-    data        = request.get_json(force=True)
-    deck_choice = data.get("deck", "lycanroc").lower()  # "lycanroc" | "raichu"
+    try:
+        data = request.get_json(force=True, silent=False) or {}
+    except Exception:
+        return jsonify({"error": "Malformed JSON"}), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Body must be a JSON object"}), 400
+
+    deck_choice = str(data.get("deck", "lycanroc")).lower()
+    if deck_choice not in ("lycanroc", "raichu"):
+        return jsonify({"error": "Invalid 'deck' value (use 'lycanroc' or 'raichu')"}), 400
+
     human_player = 0 if deck_choice == "lycanroc" else 1
     bot_player   = 1 - human_player
 
@@ -499,7 +558,10 @@ def new_game():
         champ_path = DQN_CHAMP
 
     if os.path.exists(champ_path):
-        bot.load(champ_path)
+        try:
+            bot.load(champ_path)
+        except Exception as e:
+            print(f"Failed to load champion {champ_path}: {e}")
 
     seed = int(time.time()) % 100_000
     env  = PokemonTCGEnv(seed=seed)
@@ -512,16 +574,15 @@ def new_game():
         _game["bot_player"]   = bot_player
         _game["log"]          = [f"New game started! You are playing {deck_choice.title()}."]
         _game["pending"]      = False
-        _game["selected"]     = None
         _game["mode"]         = "playing"
 
-    gs = env.gs
-    # If bot goes first, kick off its turn
-    if gs.current_player == bot_player:
-        _game["pending"] = True
-        _game["log"].append("Bot goes first...")
-        t = threading.Thread(target=_run_bot_turn, daemon=True)
-        t.start()
+        gs = env.gs
+        # If bot goes first, kick off its turn (under the lock)
+        if gs.current_player == bot_player:
+            _game["pending"] = True
+            _log("Bot goes first...")
+            t = threading.Thread(target=_run_bot_turn, daemon=True)
+            t.start()
 
     return jsonify(build_state_json())
 
@@ -533,8 +594,28 @@ def get_state():
 
 @app.route("/api/action", methods=["POST"])
 def do_action():
-    data       = request.get_json(force=True)
-    action_idx = int(data.get("action", -1))
+    # ── Parse + validate request body ──────────────────────────────
+    try:
+        data = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Malformed JSON"}), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Body must be a JSON object"}), 400
+    try:
+        action_idx = int(data.get("action", -1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid 'action' value"}), 400
+    if not (0 <= action_idx < ActionMapper.TOTAL_ACTIONS):
+        return jsonify({"error": "Action index out of range"}), 400
+
+    # Optional: which energy card the user clicked (for ATTACH_ENERGY).
+    raw_attach = data.get("attach_hand_idx", None)
+    attach_hand_idx: int | None = None
+    if raw_attach is not None:
+        try:
+            attach_hand_idx = int(raw_attach)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid 'attach_hand_idx' value"}), 400
 
     g   = _game
     env = g["env"]
@@ -544,48 +625,79 @@ def do_action():
     gs = env.gs
     h  = g["human_player"]
 
-    if gs.game_over:
-        return jsonify({"error": "Game is over"}), 400
-    if gs.current_player != h and not any(gs.players[p].pending_promotion for p in range(2)):
-        return jsonify({"error": "Not your turn"}), 400
-    if g["pending"]:
-        return jsonify({"error": "Bot is thinking"}), 400
-
-    # Validate action is legal
-    legal = _build_legal_set(env, h)
-    if action_idx not in legal:
-        return jsonify({"error": f"Illegal action {action_idx}"}), 400
-
-    atype, params = ActionMapper.decode(action_idx)
-
-    # Log the human's action
-    msg = _action_to_log(action_idx, gs, h, prefix="You")
+    # ── Locked critical section: validate legality & step atomically ──
+    # This prevents races between the read of "pending"/"current_player"
+    # and the env.step() call, and between competing requests.
     with _lock:
-        g["log"].append(msg)
-        g["selected"] = None
+        if gs.game_over:
+            return jsonify({"error": "Game is over"}), 400
+        if g["pending"]:
+            return jsonify({"error": "Bot is thinking"}), 400
+        if (gs.current_player != h
+                and not any(gs.players[p].pending_promotion for p in range(2))):
+            return jsonify({"error": "Not your turn"}), 400
 
-    env.step(action_idx)
+        legal = _build_legal_set(env, h)
+        if action_idx not in legal:
+            return jsonify({"error": f"Illegal action {action_idx}"}), 400
 
-    if gs.game_over:
-        with _lock:
-            g["mode"]  = "over"
+        atype, params = ActionMapper.decode(action_idx)
+
+        # Energy-card preference (only honoured if hand_idx is in range
+        # and points at an energy card; engine clears it after use).
+        if atype == ActionType.ATTACH_ENERGY and attach_hand_idx is not None:
+            me_h = gs.players[h]
+            if 0 <= attach_hand_idx < len(me_h.hand):
+                me_h.preferred_attach_hand_idx = attach_hand_idx
+
+        # Step the engine. On non-attack: log first; on attack: log after.
+        try:
+            if atype != ActionType.ATTACK:
+                _log(_action_to_log(action_idx, gs, h, prefix="You"))
+                env.step(action_idx)
+            else:
+                atk_name = ""
+                if me_h := gs.players[h].active:
+                    ai = params.get("atk_idx", 0)
+                    if 0 <= ai < len(me_h.attacks):
+                        atk_name = me_h.attacks[ai].name
+                env.step(action_idx)
+                dmg = gs.last_attack_damage
+                _log(f"You used {atk_name}!" + (f" ({dmg} dmg)" if dmg else ""))
+                if gs.last_damage_prevented:
+                    _log("⚠️ Bot's protection prevented all damage!")
+                elif gs.last_damage_reduced:
+                    _log("⚠️ Bot's effect reduced your damage.")
+        except Exception as e:
+            _log(f"Action failed: {e}")
+            return jsonify({"error": "Engine error", "detail": str(e)}), 500
+
+        if gs.game_over:
+            g["mode"] = "over"
             winner_label = "You win! 🎉" if gs.winner == h else "Bot wins!"
-            g["log"].append(f"--- GAME OVER: {winner_label} (by {gs.win_reason}) ---")
-        return jsonify(build_state_json())
+            _log(f"--- GAME OVER: {winner_label} (by {gs.win_reason}) ---")
+            return jsonify(build_state_json())
 
-    # Check if bot needs to make a promotion after human's attack
+        # If the bot now has pending_promotion (because human KO'd it),
+        # resolve it inside the same lock so the bot's promotion is atomic.
+        bot_player = g["bot_player"]
+        if gs.players[bot_player].pending_promotion:
+            # _handle_bot_promotion takes the lock itself — release here briefly
+            pass   # handled outside the with block below
+
+    # Run promotion + spawn bot turn outside the main lock to avoid nesting
     bot_player = g["bot_player"]
     if gs.players[bot_player].pending_promotion:
         _handle_bot_promotion()
 
-    # If turn switched to bot (after attack/end_turn), run bot turn
     if (not gs.game_over
             and gs.current_player == bot_player
             and not any(gs.players[p].pending_promotion for p in range(2))):
         with _lock:
-            g["pending"] = True
-        t = threading.Thread(target=_run_bot_turn, daemon=True)
-        t.start()
+            if not g["pending"]:           # guard against double-spawn
+                g["pending"] = True
+                t = threading.Thread(target=_run_bot_turn, daemon=True)
+                t.start()
 
     return jsonify(build_state_json())
 
@@ -601,38 +713,30 @@ def skip_turn():
     gs = env.gs
     h  = g["human_player"]
 
-    if gs.game_over or gs.current_player != h or g["pending"]:
-        return jsonify({"error": "Cannot skip right now"}), 400
-
     with _lock:
-        g["log"].append("You ended your turn.")
-        g["selected"] = None
+        if gs.game_over or gs.current_player != h or g["pending"]:
+            return jsonify({"error": "Cannot skip right now"}), 400
+        _log("You ended your turn.")
+        try:
+            env.step(ActionMapper.END_TURN_IDX)
+        except Exception as e:
+            _log(f"End-turn failed: {e}")
+            return jsonify({"error": "Engine error", "detail": str(e)}), 500
 
-    env.step(ActionMapper.END_TURN_IDX)
-
-    if gs.game_over:
-        with _lock:
+        if gs.game_over:
             g["mode"] = "over"
-        return jsonify(build_state_json())
+            return jsonify(build_state_json())
 
     bot_player = g["bot_player"]
-    if gs.current_player == bot_player:
+    if (gs.current_player == bot_player
+            and not any(gs.players[p].pending_promotion for p in range(2))):
         with _lock:
-            g["pending"] = True
-        t = threading.Thread(target=_run_bot_turn, daemon=True)
-        t.start()
+            if not g["pending"]:
+                g["pending"] = True
+                t = threading.Thread(target=_run_bot_turn, daemon=True)
+                t.start()
 
     return jsonify(build_state_json())
-
-
-@app.route("/api/select", methods=["POST"])
-def select_card():
-    """Track which hand card the human has clicked (for two-step actions)."""
-    data = request.get_json(force=True)
-    idx  = data.get("index", None)
-    with _lock:
-        _game["selected"] = idx
-    return jsonify({"selected": idx})
 
 
 if __name__ == "__main__":

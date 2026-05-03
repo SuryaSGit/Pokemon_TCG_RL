@@ -48,7 +48,7 @@ MAX_BENCH     = 5
 MAX_ATTACKS   = 2
 MAX_HAND      = 10   # soft cap for encoding
 MAX_DECK      = 30
-KO_TO_WIN     = 6
+KO_TO_WIN     = 4
 
 # Pokemon identity index (for encoding)
 POKEMON_IDS = {
@@ -232,13 +232,12 @@ def build_raichu_deck() -> List[Card]:
             Attack("Circle Circuit", 70, _e("1L2C")),
         ]))
     # Bewear x1
-    # Hammer In is split into two action slots: the "safe" 80-dmg version
-    # and a "boosted" version that does an extra 40 dmg but deals 20 to self.
-    # This lets the player explicitly choose between safe and boosted, and
-    # gives the bot two distinct actions to learn the tradeoff.
+    # Original Sun & Moon Trainer Kit Bewear: Bear Hug (40 dmg, paralyse-ish)
+    # and Hammer In (80 dmg). We model the basic 40-dmg attack and the
+    # 80-dmg attack without the optional self-damage variant.
     cards.append(PokemonCard("Bewear", 130, Stage.STAGE1, "Stufful", [
-        Attack("Hammer In",         80, _e("3C")),
-        Attack("Hammer In Boost",  120, _e("3C"), effect="self_damage_20"),
+        Attack("Bear Hug",   40, _e("2C")),
+        Attack("Hammer In",  80, _e("3C")),
     ]))
     # Grubbin x1
     cards.append(PokemonCard("Grubbin", 70, Stage.BASIC, None, [
@@ -285,6 +284,10 @@ class PlayerState:
     supporter_used: bool = False
     turn_count: int = 0   # total turns taken
     pending_promotion: bool = False   # True when active was KO'd and player must choose replacement
+    # When set, the next ATTACH_ENERGY action consumes this hand index
+    # instead of the first energy card. Cleared after one attach attempt.
+    # Used by the UI to let the player click a specific energy card.
+    preferred_attach_hand_idx: Optional[int] = None
 
     def all_pokemon_in_play(self) -> List[PokemonCard]:
         pokes = []
@@ -317,6 +320,8 @@ class GameState:
     damage_reduction: Dict[int, int] = field(default_factory=dict)   # player_idx -> reduction
     # Last attack damage actually dealt — for log display
     last_attack_damage: int = 0
+    last_damage_prevented: bool = False   # True if protection blocked all damage
+    last_damage_reduced: bool = False     # True if reduction shrank but didn't fully block
 
     def opponent(self) -> int:
         return 1 - self.current_player
@@ -766,12 +771,26 @@ class GameEngine:
         raise RuntimeError(f"Player {pidx} has no basic pokemon to place as active")
 
     def _draw_n(self, gs: GameState, pidx: int, n: int) -> bool:
-        """Draw n cards. Returns False if deck ran out."""
+        """Draw n cards. Returns False if deck ran out.
+
+        On deckout: the player with more KOs wins. On a KO tie, the player
+        who did NOT deck out wins (i.e., the opponent of pidx). This avoids
+        the previous "instant loss for deckout" rule which made deck-thinning
+        cards (Hau's draw, Great Ball searches) too risky.
+        """
         p = gs.players[pidx]
         for _ in range(n):
             if not p.deck:
                 gs.game_over = True
-                gs.winner = 1 - pidx
+                deckout_player = pidx
+                opponent       = 1 - pidx
+                me_kos  = gs.players[deckout_player].ko_count
+                opp_kos = gs.players[opponent].ko_count
+                if me_kos > opp_kos:
+                    gs.winner = deckout_player
+                else:
+                    # Tie or deck-out player has fewer KOs → non-deckout wins
+                    gs.winner = opponent
                 gs.win_reason = "deckout"
                 return False
             p.hand.append(p.deck.pop(0))
@@ -844,13 +863,28 @@ class GameEngine:
         )
         if target is None:
             return
-        # Find first energy card in hand and attach it
-        for i, c in enumerate(me.hand):
-            if isinstance(c, EnergyCard):
-                me.hand.pop(i)
-                target.energy[c.energy_type] = target.energy.get(c.energy_type, 0) + 1
-                me.energy_used = True
-                return
+        # Determine which energy card to consume. If the player set
+        # preferred_attach_hand_idx (e.g., the human clicked a specific
+        # energy card in the UI), honour that choice when valid. Otherwise,
+        # fall back to the first energy card found in hand.
+        chosen_idx = -1
+        pref = me.preferred_attach_hand_idx
+        if (pref is not None and 0 <= pref < len(me.hand)
+                and isinstance(me.hand[pref], EnergyCard)):
+            chosen_idx = pref
+        else:
+            for i, c in enumerate(me.hand):
+                if isinstance(c, EnergyCard):
+                    chosen_idx = i
+                    break
+        # Always clear the preference after one attach attempt so it doesn't
+        # leak into the next turn.
+        me.preferred_attach_hand_idx = None
+        if chosen_idx < 0:
+            return
+        c = me.hand.pop(chosen_idx)
+        target.energy[c.energy_type] = target.energy.get(c.energy_type, 0) + 1
+        me.energy_used = True
 
     def _play_pokemon(self, gs: GameState, hand_idx: int) -> None:
         me = gs.current()
@@ -1041,14 +1075,22 @@ class GameEngine:
                 final_damage = 10 * opp.active.total_energy()
 
         # Apply damage reduction (from Fletchling's Hinder)
+        damage_before_reduction = final_damage
         final_damage = max(0, final_damage - damage_reduction)
 
         # Apply protection flag
+        was_protected = False
         if opp.active and opp.active.effect_flags.get("protected") == gs.turn_number - 1:
+            if final_damage > 0:
+                was_protected = True
             final_damage = 0
 
-        # Record actual damage dealt for UI log
-        gs.last_attack_damage = final_damage
+        # Record actual damage dealt + whether protection blocked it (for UI)
+        gs.last_attack_damage   = final_damage
+        gs.last_damage_prevented = was_protected
+        gs.last_damage_reduced   = (damage_reduction > 0
+                                    and final_damage < damage_before_reduction
+                                    and not was_protected)
 
         # Deal damage to opponent's active
         if opp.active and final_damage > 0:
@@ -1061,7 +1103,7 @@ class GameEngine:
             if gs.game_over:
                 reward += 10.0 if gs.winner == gs.current_player else -10.0
 
-        # Check self-KO from recoil effects (Hammer In Boost, etc.)
+        # Check self-KO from recoil effects (any attack with self_damage_20, etc.).
         # The attacker may have just dealt damage to itself via effects above.
         if (not gs.game_over and me.active is not None
                 and me.active.current_hp <= 0):
