@@ -1,0 +1,69 @@
+﻿Pokémon Cards
+* Bloodmoon Ursaluna ex (Basic) — HP: 260
+   * Ability: Seasoned Skill – Blood Moon costs 1 Colorless Energy less for each knockout your opponent has taken.
+   * Attack: Blood Moon [5 Colorless Energies] – Does 240 damage. During your next turn, this Pokémon can’t attack.
+* Budew (Basic) — HP: 30
+   * Attack: Itchy Pollen [0 Cost] – Does 10 damage. During your opponent’s next turn, they can't play any Item cards from their hand.
+* Duskull (Basic) — HP: 60
+   * Attack: Come and Get You [1 Psychic Energy] – Put up to 3 Duskull from your discard pile onto your Bench.
+   * Attack: Mumble [2 Psychic Energies] – Does 30 damage.
+* Dusclops (Stage 1) — HP: 90
+   * Ability: Cursed Blast – Once during your turn, you may put 5 damage counters on 1 of your opponent’s Pokémon. If you use this Ability, this Pokémon is Knocked Out.
+   * Attack: Will-O-Wisp [2 Psychic Energies] – Does 50 damage.
+* Dusknoir (Stage 2) — HP: 160
+   * Ability: Cursed Blast – Once during your turn, you may put 13 damage counters on 1 of your opponent’s Pokémon. If you use this Ability, this Pokémon is Knocked Out.
+   * Attack: Shadow Bind [2 Psychic Energies, 1 Colorless Energy] – Does 150 damage. During your opponent’s next turn, the Defending Pokémon can’t retreat.
+* Fezandipiti ex (Basic) — HP: 210
+   * Ability: Flip the Script – Once during your turn, if any of your Pokémon were Knocked Out during your opponent’s last turn, you may draw 3 cards.
+   * Attack: Cruel Arrow [3 Colorless Energies] – Does 100 damage to 1 of your opponent’s Pokémon (don't apply Weakness/Resistance for Benched Pokémon).
+* Mega Starmie ex (Stage 1 - Evolves from Staryu) — HP: 330
+   * Attack: Jetting Blow [1 Water Energy] – Does 120 damage. This attack also does 50 damage to 1 of your opponent's Benched Pokémon (don't apply Weakness and Resistance for Benched Pokémon).
+   * Attack: Nebula Beam [3 Colorless Energies] – Does 210 damage. This attack's damage isn't affected by Weakness or Resistance, or by any effects on your opponent's Active Pokémon.
+* Latias ex (Basic) — HP: 210
+   * Ability: Skyliner – Your Basic Pokémon in play have no Retreat Cost.
+   * Attack: Eon Blade [2 Psychic Energies, 1 Colorless Energy] – Does 200 damage. During your next turn, this Pokémon can’t attack.
+* Meowth ex (Basic) — HP: 170
+   * Ability: Last-Ditch Catch – Once during your turn, when you play this Pokémon from your hand onto your Bench, you may use this Ability. Search your deck for a Supporter card, reveal it, and put it into your hand. Then, shuffle your deck. You can't use more than 1 Ability that has "Last-Ditch" in its name each turn.
+   * Attack: Tuck Tail [3 Colorless Energies] – Does 60 damage. Put this Pokémon and all attached cards into your hand.
+* Munkidori (Basic) — HP: 110
+   * Ability: Adrena-Brain – Once during your turn, if this Pokémon has any Darkness Energy attached, you may move up to 3 damage counters from 1 of your Pokémon to 1 of your opponent’s Pokémon.
+   * Attack: Mind Bend [1 Psychic Energy, 1 Colorless Energy] – Does 60 damage. Your opponent’s Active Pokémon is now Confused.
+Staryu (Basic) — HP: 70
+* Attack: Water Gun [1 Water Energy] – Does 20 damage.
+
+
+
+
+Trainer Cards
+* Boss’s Orders (Ghetsis) (Supporter)
+   * Effect: Switch in 1 of your opponent’s Benched Pokémon to the Active Spot.
+* Buddy-Buddy Poffin (Item)
+   * Effect: Search your deck for up to 2 Basic Pokémon with 70 HP or less and put them onto your Bench.
+* Hilda (Supporter)
+   * Effect: Search your deck for an Evolution Pokémon and an Energy card, reveal them, and put them into your hand.
+Judge (Supporter)
+* Effect: Each player shuffles their hand into their deck and draws 4 cards.
+Lillie’s Determination (Supporter)
+* Effect: Shuffle your hand into your deck. Then, draw 6 cards. If you have exactly 0 knockouts done to your opponents, draw 8 cards instead.
+Night Stretcher (Item)
+* Effect: Put a Pokémon or a Basic Energy card from your discard pile into your hand.
+Poké Pad (Item)
+* Effect: Search your deck for a Pokémon that doesn't have a Rule Box, reveal it, and put it into your hand. Then, shuffle your deck. (Pokémon ex, Pokémon V, etc. have Rule Boxes.)
+Pokégear 3.0 (Item)
+* Effect: Look at the top 7 cards of your deck. You may reveal a Supporter card you find there and put it into your hand. Shuffle the other cards back into your deck.
+Risky Ruins (Stadium)
+* Effect: Whenever any player puts a Basic non-Darkness Pokémon onto their Bench during their turn, place 2 damage counters on that Pokémon.
+Ultra Ball (Item)
+* Effect: You can use this card only if you discard 2 other cards from your hand. Search your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.
+Wally’s Compassion (Supporter)
+* Effect: Heal all damage from 1 of your Mega Evolution Pokémon ex. If you healed any damage in this way, put all Energy attached to that Pokémon into your hand.
+
+
+Energy Cards
+* Ignition Energy (Special Energy)
+   * Effect: Provides 1 Colorless Energy. If attached to an Evolution Pokémon, it provides 3 Colorless Energies instead. Discard it at the end of your turn.
+* Basic Water Energy
+* Basic Darkness Energy
+Legacy Energy (ACE SPEC)
+* Effect: As long as this card is attached to a Pokémon, it provides every type of Energy but provides only 1 Energy at a time.
+* Special Effect: If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent’s Pokémon, that player takes 1 knockout reward. This effect of your Legacy Energy can’t be applied more than once per game.

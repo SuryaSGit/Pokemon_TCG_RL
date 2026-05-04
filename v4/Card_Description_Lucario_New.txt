@@ -1,0 +1,51 @@
+﻿* Mega Lucario ex (Stage 1 — Evolves from Riolu) — HP: 340
+   * Attack: Aura Jab [1 Fighting Energy] – Does 130 damage. Attach up to 3 Basic Fighting Energy cards from your discard pile to your Benched Pokémon in any way you like.
+   * Attack: Mega Brave [2 Fighting Energies] – Does 270 damage. During your next turn, this Pokémon can’t use Mega Brave.
+* Hariyama (Stage 1 — Evolves from Makuhita) — HP: 150
+   * Ability: Heave-Ho Catcher – Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability. Switch in 1 of your opponent’s Benched Pokémon to the Active Spot.
+   * Attack: Wild Press [3 Fighting Energies] – Does 210 damage. This Pokémon also does 70 damage to itself.
+* Lunatone (Basic) — HP: 110
+   * Ability: Lunar Cycle – Once during your turn, if you have Solrock in play, you may discard a Basic Fighting Energy card from your hand in order to use this Ability. Draw 3 cards. You can't use more than 1 Lunar Cycle Ability each turn.
+   * Attack: Power Gem [2 Fighting Energies] – Does 50 damage.
+* Solrock (Basic) — HP: 110
+   * Attack: Cosmic Beam [1 Fighting Energy] – Does 70 damage. If you don’t have Lunatone on your Bench, this attack does nothing. This attack’s damage isn’t affected by Weakness or Resistance.
+* Makuhita (Basic) — HP: 80
+   * Attack: Corkscrew Punch [1 Fighting Energy] – Does 10 damage.
+   * Attack: Confront [2 Fighting Energies] – Does 30 damage.
+* Riolu (Basic) — HP: 80
+   * Attack: Accelerating Stab [1 Fighting Energy] – Does 30 damage. During your next turn, this Pokémon can’t use Accelerating Stab.
+* Meowth ex (Basic) — HP: 170
+   * Ability: Last-Ditch Catch – Once during your turn, when you play this Pokémon from your hand onto your Bench, you may search your deck for a Supporter card, reveal it, and put it into your hand. Then, shuffle your deck. You can’t use more than 1 Ability that has “Last-Ditch” in its name each turn.
+   * Attack: Tuck Tail [3 Colorless Energies] – Does 60 damage. Put this Pokémon and all attached cards into your hand.
+
+
+Air Balloon (Tool)
+   * Effect: The Retreat Cost of the Pokémon this card is attached to is 2 Colorless Energies less.
+* Black Belt’s Training (Supporter)
+   * Effect: During this turn, attacks used by your Pokémon do 40 more damage to your opponent’s Active Pokémon ex (before applying Weakness and Resistance).
+* Boss’s Orders [Ghetsis] (Supporter)
+   * Effect: Switch in 1 of your opponent’s Benched Pokémon to the Active Spot.
+* Judge (Supporter)
+   * Effect: Each player shuffles their hand into their deck and draws 4 cards.
+* Lillie’s Determination (Supporter)
+   * Effect: Shuffle your hand into your deck. Then, draw 6 cards. If you have exactly 6 Prize cards remaining, draw 8 cards instead.
+* Fighting Gong (Item)
+   * Effect: Search your deck for a Basic Fighting Energy card or a Basic Fighting Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.
+* Poké Pad (Item)
+   * Effect: Search your deck for a Pokémon that doesn’t have a Rule Box, reveal it, and put it into your hand. Then, shuffle your deck. (Note: Pokémon ex, Pokémon V, etc. have Rule Boxes.)
+* Premium Power Pro (Item)
+   * Effect: During this turn, attacks used by your Fighting Pokémon do 30 more damage to your opponent’s Active Pokémon (before applying Weakness and Resistance).
+* Switch (Item)
+   * Effect: Switch your Active Pokémon with 1 of your Benched Pokémon.
+* Gravity Mountain (Stadium)
+   * Effect: Each Stage 2 Pokémon in play (both yours and your opponent’s) gets -30 HP.
+* Team Rocket’s Petrel (Supporter)
+   * Effect: Search your deck for a Trainer card, reveal it, and put it into your hand. Then, shuffle your deck.
+* Wally’s Compassion (Supporter)
+   * Effect: Heal all damage from 1 of your Mega Evolution Pokémon ex. If you healed any damage in this way, put all Energy attached to that Pokémon into your hand.
+Ultra Ball (Item)
+* Effect: You can use this card only if you discard 2 other cards from your hand. Search your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.
+Unfair Stamp (Item — ACE SPEC)
+* Effect: You can use this card only if any of your Pokémon were Knocked Out during your opponent’s last turn. Each player shuffles their hand into their deck. Then, you draw 5 cards, and your opponent draws 2 cards.
+Energy:
+* Basic Fighting Energy

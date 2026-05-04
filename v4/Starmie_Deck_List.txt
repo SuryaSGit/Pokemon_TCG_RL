@@ -1,0 +1,33 @@
+﻿Pokémon: 21
+4 Duskull PRE 35
+3 Dusclops PRE 36
+2 Dusknoir PRE 37
+3 Staryu POR 20
+2 Mega Starmie ex POR 21
+2 Munkidori TWM 95
+1 Budew ASC 16
+1 Meowth ex POR 62
+1 Fezandipiti ex ASC 142
+1 Latias ex SSP 76
+1 Bloodmoon Ursaluna ex TWM 141
+
+
+Trainer: 30
+4 Lillie's Determination MEG 119
+3 Hilda WHT 84
+2 Boss's Orders MEG 114
+1 Judge POR 76
+1 Wally's Compassion MEG 132
+4 Buddy-Buddy Poffin TEF 144
+4 Ultra Ball MEG 131
+3 Poké Pad POR 81
+3 Pokégear 3.0 SVI 186
+2 Night Stretcher ASC 196
+3 Risky Ruins MEG 127
+
+
+Energy: 9
+3 Water Energy MEE 3
+3 Darkness Energy MEE 7
+2 Ignition Energy WHT 86
+1 Legacy Energy TWM 167
