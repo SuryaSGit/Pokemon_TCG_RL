@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokemon TCG RL — v3 Agents & GUI</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red: #e53935;
+    --blue: #1565c0;
+    --yellow: #f9a825;
+    --dark: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --purple: #8b5cf6;
+    --orange: #fb8c00;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--dark);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  /* ─── slide engine ─── */
+  .deck { width: 100vw; height: 100vh; position: relative; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    padding: 48px 64px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .slide.active { opacity: 1; pointer-events: all; }
+
+  /* ─── nav ─── */
+  #nav {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(22,27,34,0.92); border: 1px solid var(--border);
+    border-radius: 40px; padding: 10px 20px;
+    backdrop-filter: blur(8px); z-index: 100;
+  }
+  #nav button {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 20px; padding: 4px 10px; border-radius: 8px; transition: color .2s, background .2s;
+  }
+  #nav button:hover { color: var(--text); background: var(--border); }
+  #counter { font-size: 13px; color: var(--muted); min-width: 52px; text-align: center; }
+
+  /* ─── progress bar ─── */
+  #progress {
+    position: fixed; top: 0; left: 0; height: 3px;
+    background: linear-gradient(90deg, var(--red), var(--yellow));
+    transition: width .35s ease; z-index: 99;
+  }
+
+  /* ─── typography ─── */
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 12px;
+  }
+  h1 { font-size: clamp(36px, 5vw, 64px); font-weight: 800; line-height: 1.1; text-align: center; }
+  h2 { font-size: clamp(24px, 3.5vw, 44px); font-weight: 700; line-height: 1.15; text-align: center; }
+  h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  p, li { font-size: clamp(13px, 1.6vw, 16px); line-height: 1.65; color: var(--muted); }
+  li { list-style: none; padding-left: 1.2em; position: relative; }
+  li::before { content: "–"; position: absolute; left: 0; color: var(--yellow); }
+
+  .accent { color: var(--yellow); }
+  .red    { color: var(--red); }
+  .green  { color: var(--green); }
+  .purple { color: var(--purple); }
+  .blue   { color: var(--blue); }
+  .orange { color: var(--orange); }
+
+  /* ─── layout helpers ─── */
+  .cols { display: flex; gap: 28px; width: 100%; align-items: flex-start; }
+  .col  { flex: 1; }
+  .col3 { flex: 1.3; }
+  .center { text-align: center; }
+  .mt { margin-top: 24px; }
+  .mt-sm { margin-top: 14px; }
+
+  /* ─── card ─── */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px 24px;
+  }
+  .card + .card { margin-top: 14px; }
+
+  /* ─── tag ─── */
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+    padding: 3px 10px; border-radius: 20px; margin-bottom: 8px;
+  }
+  .tag-red    { background: rgba(229,57,53,.18); color: var(--red); }
+  .tag-blue   { background: rgba(21,101,192,.2); color: #64b5f6; }
+  .tag-green  { background: rgba(63,185,80,.15); color: var(--green); }
+  .tag-yellow { background: rgba(249,168,37,.15); color: var(--yellow); }
+  .tag-purple { background: rgba(139,92,246,.18); color: #c4b5fd; }
+
+  /* ─── stat block ─── */
+  .stat { text-align: center; }
+  .stat-num { font-size: clamp(32px, 4.5vw, 52px); font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; letter-spacing: .5px; }
+
+  /* ─── divider ─── */
+  .divider { width: 40px; height: 3px; border-radius: 2px; margin: 14px auto; }
+
+  /* ─── arch diagram ─── */
+  .arch-box {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 16px;
+    font-size: 13px; font-weight: 600; text-align: center; min-height: 44px;
+  }
+  .arch-arrow { color: var(--muted); font-size: 20px; text-align: center; line-height: 1; padding: 4px 0; }
+
+  /* ─── reward table ─── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 600;
+       border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid rgba(48,54,61,.5); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  .pos { color: var(--green); font-weight: 700; }
+  .neg { color: var(--red); font-weight: 700; }
+
+  /* ─── badge bar ─── */
+  .badge-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 18px; }
+  .badge {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; font-weight: 600;
+  }
+
+  /* ─── title slide ─── */
+  #s1 { background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(229,57,53,.12) 0%, transparent 70%),
+                     radial-gradient(ellipse 60% 50% at 80% 80%, rgba(249,168,37,.07) 0%, transparent 70%); }
+  .pokeball {
+    width: 88px; height: 88px; border-radius: 50%;
+    background: linear-gradient(180deg, var(--red) 50%, #fff 50%);
+    border: 4px solid #fff; position: relative; margin: 0 auto 24px;
+    box-shadow: 0 0 40px rgba(229,57,53,.4);
+  }
+  .pokeball::after {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; border: 3px solid #333;
+  }
+  .pokeball::before {
+    content: ''; position: absolute; top: calc(50% - 3px); left: 0; right: 0; height: 6px;
+    background: #333;
+  }
+  .subtitle { font-size: clamp(14px, 2vw, 18px); color: var(--muted); margin-top: 12px; }
+
+  /* ─── win bar ─── */
+  .win-bar-wrap { margin-top: 12px; }
+  .win-bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .win-bar { height: 10px; border-radius: 5px; background: var(--border); overflow: hidden; }
+  .win-bar-fill { height: 100%; border-radius: 5px; }
+
+  /* ─── flow ─── */
+  .flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .flow-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 18px; font-size: 13px; font-weight: 600; text-align: center;
+  }
+  .flow-arrow { color: var(--muted); font-size: 18px; }
+
+  /* ─── gui mockup ─── */
+  .gui-frame {
+    background: #0a0e1a; border: 2px solid var(--border); border-radius: 12px;
+    padding: 20px; width: 100%; font-size: 12px;
+  }
+  .gui-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .gui-zone {
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px; padding: 10px; text-align: center; font-size: 11px;
+    color: var(--muted); flex: 1;
+  }
+  .gui-card-mini {
+    background: linear-gradient(135deg, #1e2a3a, #2a1e3a);
+    border: 1px solid #3a3a5a; border-radius: 5px;
+    width: 40px; height: 56px; display: inline-block; margin: 2px;
+    font-size: 8px; color: var(--muted); line-height: 56px; text-align: center;
+  }
+  .hp-bar { height: 5px; border-radius: 3px; background: var(--border); margin-top: 4px; overflow: hidden; }
+  .hp-fill { height: 100%; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<div class="deck">
+
+  <!-- ─── SLIDE 1: Title ─── -->
+  <div class="slide active" id="s1">
+    <div class="pokeball"></div>
+    <div class="eyebrow">Deep Reinforcement Learning</div>
+    <h1>Pokemon TCG<br><span class="accent">with RL Agents</span></h1>
+    <p class="subtitle">v3 Self-Play Agents &amp; Web GUI</p>
+    <div class="badge-row">
+      <div class="badge">PPO</div>
+      <div class="badge">Double DQN</div>
+      <div class="badge">Pure NumPy</div>
+      <div class="badge">Self-Play</div>
+      <div class="badge">Flask GUI</div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 2: Overview ─── -->
+  <div class="slide" id="s2">
+    <div class="eyebrow">Project Overview</div>
+    <h2>What I built</h2>
+    <div class="divider" style="background:var(--yellow)"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-red">Environment</div>
+          <h3>Full Pokemon TCG Engine</h3>
+          <ul>
+            <li>Two 30-card half-decks (Lycanroc & Alolan Raichu)</li>
+            <li>All core rules: attack, evolve, energy, trainer cards</li>
+            <li>84-dim state vector, 104-action space</li>
+            <li>Legal-action masking at every step</li>
+          </ul>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-blue">Agents</div>
+          <h3>Two Competing RL Algorithms</h3>
+          <ul>
+            <li>PPO (on-policy) plays Lycanroc deck</li>
+            <li>Double DQN (off-policy) plays Alolan Raichu deck</li>
+            <li>Trained via self-play &amp; behavioral cloning warm-start</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-green">GUI</div>
+          <h3>Interactive Web Interface</h3>
+          <ul>
+            <li>Flask backend + vanilla JS frontend</li>
+            <li>Human vs. Champion Bot mode</li>
+            <li>Real-time board visualization</li>
+            <li>Energy-type color coding, HP bars, attack display</li>
+          </ul>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-yellow">Results</div>
+          <h3>Champion Win Rates</h3>
+          <ul>
+            <li><span class="accent">PPO: 92.6%</span> vs random opponent</li>
+            <li>DQN: 75.6% vs random opponent</li>
+            <li>980k+ total training episodes</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 3: Environment ─── -->
+  <div class="slide" id="s3">
+    <div class="eyebrow">Game Environment</div>
+    <h2>State &amp; Action Space</h2>
+    <div class="divider" style="background:var(--blue)"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-blue">State — 84 dimensions</div>
+          <ul style="margin-top:8px">
+            <li>Active Pokémon: HP, energy attached, attacks available</li>
+            <li>Bench slots (5): species, HP, evolution stage</li>
+            <li>Hand cards: type-encoded (Pokémon / energy / trainer)</li>
+            <li>Opponent's visible state (active + bench)</li>
+            <li>Prize cards remaining, deck size, turn count</li>
+          </ul>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-green">Decks</div>
+          <table>
+            <tr><th>Deck</th><th>Focus</th><th>Flagship</th></tr>
+            <tr><td>Lycanroc</td><td>Fighting</td><td>Lycanroc</td></tr>
+            <tr><td>Alolan Raichu</td><td>Lightning / Psychic</td><td>Alolan Raichu</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card" style="height:100%">
+          <div class="tag tag-yellow">Action Space — 104 actions</div>
+          <table style="margin-top:8px">
+            <tr><th>Category</th><th>Count</th></tr>
+            <tr><td>Attach energy (active + 5 bench)</td><td>6</td></tr>
+            <tr><td>Play Pokémon from hand</td><td>up to 10</td></tr>
+            <tr><td>Evolve</td><td>up to 10</td></tr>
+            <tr><td>Attack (2 per active)</td><td>2</td></tr>
+            <tr><td>Use item / supporter cards</td><td>grouped</td></tr>
+            <tr><td>Promote benched Pokémon</td><td>5</td></tr>
+            <tr><td>End turn</td><td>1</td></tr>
+          </table>
+          <p style="margin-top:12px;font-size:12px">Invalid actions are <strong>masked to −∞</strong> before softmax — the agent never samples an illegal move.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 4: PPO Agent ─── -->
+  <div class="slide" id="s4">
+    <div class="eyebrow">Agent 0 — Lycanroc Deck</div>
+    <h2>PPO — Proximal Policy Optimization</h2>
+    <div class="divider" style="background:var(--red)"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-red">Architecture</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+            <div class="arch-box" style="border-color:var(--muted);color:var(--muted)">Input — 84 dims</div>
+            <div class="arch-arrow">↓</div>
+            <div class="arch-box" style="border-color:#444">Shared Trunk: Linear(84→128) ReLU → Linear(128→128) ReLU</div>
+            <div class="arch-arrow">↓ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ↓</div>
+            <div style="display:flex;gap:8px">
+              <div class="arch-box" style="flex:1;border-color:var(--red);color:var(--red)">Actor Head<br>128→104 logits<br>+ Softmax</div>
+              <div class="arch-box" style="flex:1;border-color:var(--blue);color:#64b5f6">Critic Head<br>128→1<br>state value V(s)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-yellow">Hyperparameters</div>
+          <table style="margin-top:8px">
+            <tr><td>Learning rate</td><td class="accent">3 × 10⁻⁴</td></tr>
+            <tr><td>Discount γ</td><td class="accent">0.99</td></tr>
+            <tr><td>GAE λ</td><td class="accent">0.95</td></tr>
+            <tr><td>Clip ε</td><td class="accent">0.2</td></tr>
+            <tr><td>Rollout length</td><td class="accent">512 steps</td></tr>
+            <tr><td>Batch size</td><td class="accent">64</td></tr>
+            <tr><td>Entropy coeff</td><td class="accent">0.02</td></tr>
+          </table>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-red">PPO Clip Loss</div>
+          <p style="font-family:monospace;font-size:13px;color:var(--text);margin-top:6px">
+            r<sub>t</sub> = π(a|s) / π<sub>old</sub>(a|s)<br>
+            L = min( r<sub>t</sub>·A<sub>t</sub> , clip(r<sub>t</sub>, 1±ε)·A<sub>t</sub> )
+          </p>
+          <p style="margin-top:8px;font-size:12px">Advantages computed via <strong>Generalized Advantage Estimation</strong> over the 512-step rollout buffer.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 5: DQN Agent ─── -->
+  <div class="slide" id="s5">
+    <div class="eyebrow">Agent 1 — Alolan Raichu Deck</div>
+    <h2>Double DQN — Deep Q-Network</h2>
+    <div class="divider" style="background:#64b5f6"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-blue">Architecture</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+            <div class="arch-box" style="border-color:var(--muted);color:var(--muted)">Input — 84 dims</div>
+            <div class="arch-arrow">↓</div>
+            <div class="arch-box" style="border-color:#64b5f6;color:#64b5f6">Online Q-Network<br>84→128→128→104 Q-values</div>
+            <div class="arch-arrow">↓&nbsp; (hard copy every 500 steps)</div>
+            <div class="arch-box" style="border-color:var(--muted);color:var(--muted)">Target Q-Network (frozen copy)</div>
+          </div>
+          <p style="margin-top:10px;font-size:12px"><strong>Double DQN:</strong> Online net selects action; target net evaluates it — decouples selection from evaluation to reduce overestimation.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-blue">Hyperparameters</div>
+          <table style="margin-top:8px">
+            <tr><td>Learning rate</td><td style="color:#64b5f6">1 × 10⁻³</td></tr>
+            <tr><td>Discount γ</td><td style="color:#64b5f6">0.99</td></tr>
+            <tr><td>ε-greedy start → end</td><td style="color:#64b5f6">1.0 → 0.05</td></tr>
+            <tr><td>ε decay steps</td><td style="color:#64b5f6">30,000</td></tr>
+            <tr><td>Replay buffer</td><td style="color:#64b5f6">20,000</td></tr>
+            <tr><td>Min buffer to train</td><td style="color:#64b5f6">1,000</td></tr>
+            <tr><td>Batch size</td><td style="color:#64b5f6">64</td></tr>
+            <tr><td>Target update freq</td><td style="color:#64b5f6">every 500 steps</td></tr>
+          </table>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-green">Experience Replay</div>
+          <p style="font-size:13px;margin-top:6px">Circular buffer stores <code style="color:var(--text)">(s, a, r, s', done, mask)</code> tuples. Uniform random sampling breaks temporal correlation for stable Q-learning.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 6: Implementation ─── -->
+  <div class="slide" id="s6">
+    <div class="eyebrow">Implementation</div>
+    <h2>Pure NumPy — No ML Framework</h2>
+    <div class="divider" style="background:var(--green)"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-green">Custom Neural Net Stack</div>
+          <ul style="margin-top:8px">
+            <li><strong>LinearLayer</strong>: He-initialized weights + per-layer Adam state</li>
+            <li><strong>MLP</strong>: 3-layer network with ReLU activations</li>
+            <li><strong>ActorCritic</strong>: Shared trunk + two output heads</li>
+            <li>Optimizer: Adam (β₁=0.9, β₂=0.999, ε=1e-8)</li>
+            <li>All ops vectorized with NumPy — no loops in backprop</li>
+          </ul>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-yellow">Behavioral Cloning Warm-Start</div>
+          <ul style="margin-top:8px">
+            <li>A <strong>HeuristicAgent</strong> generates expert demonstrations</li>
+            <li>PPO: cross-entropy loss on expert actions</li>
+            <li>DQN: supervised target Q(s, a<sub>expert</sub>) = +1</li>
+            <li>Pre-trains both nets before self-play begins</li>
+            <li>Decouples exploration from learning initially</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-purple">Self-Play Training Loop</div>
+          <div class="flow" style="flex-direction:column;gap:8px;margin-top:12px;align-items:stretch">
+            <div class="flow-box" style="border-color:var(--red)">PPO collects 512-step rollout playing Lycanroc</div>
+            <div class="arch-arrow">↕ both agents alternate turns in same game</div>
+            <div class="flow-box" style="border-color:#64b5f6">DQN updates after each turn (replay buffer)</div>
+            <div class="arch-arrow">↓ every 200 episodes</div>
+            <div class="flow-box" style="border-color:var(--green)">Evaluate: 50 test games per agent → win rate</div>
+            <div class="arch-arrow">↓ if win rate improves &gt; 2%</div>
+            <div class="flow-box" style="border-color:var(--yellow)">Save Champion weights</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 7: Reward Shaping ─── -->
+  <div class="slide" id="s7">
+    <div class="eyebrow">Reward Engineering</div>
+    <h2>Dense Reward Shaping</h2>
+    <div class="divider" style="background:var(--orange)"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-yellow">Game Outcome Rewards</div>
+          <table style="margin-top:8px">
+            <tr><th>Event</th><th>Reward</th></tr>
+            <tr><td>Win game</td><td class="pos">+10</td></tr>
+            <tr><td>Lose game</td><td class="neg">-10</td></tr>
+            <tr><td>Knock out opponent's Pokémon</td><td class="pos">+1</td></tr>
+            <tr><td>Each step (time penalty)</td><td class="neg">-0.01</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-orange">Action-Level Shaping</div>
+          <table style="margin-top:8px">
+            <tr><th>Action</th><th>Reward</th></tr>
+            <tr><td>Attack (base)</td><td class="pos">+0.30</td></tr>
+            <tr><td>Attack + damage bonus</td><td class="pos">+dmg/100</td></tr>
+            <tr><td>Optimal attack choice</td><td class="pos">+0.10</td></tr>
+            <tr><td>Suboptimal attack (≥20 dmg diff)</td><td class="neg">-0.15</td></tr>
+            <tr><td>Attach typed energy</td><td class="pos">+0.20</td></tr>
+            <tr><td>Evolve Pokémon</td><td class="pos">+0.25</td></tr>
+            <tr><td>End turn (attack was available)</td><td class="neg">-0.20</td></tr>
+            <tr><td>End turn (missed energy attach)</td><td class="neg">-0.05</td></tr>
+            <tr><td>Play Pokémon to bench</td><td class="pos">+0.02</td></tr>
+            <tr><td>Use item / supporter</td><td class="pos">+0.03</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+    <p class="center" style="margin-top:16px;font-size:13px">15 distinct reward signals shape agents toward aggressive, efficient TCG play — the strong <span class="neg">-0.20</span> end-turn penalty is the most impactful single rule.</p>
+  </div>
+
+  <!-- ─── SLIDE 8: GUI ─── -->
+  <div class="slide" id="s8">
+    <div class="eyebrow">Web Interface</div>
+    <h2>Flask GUI — Human vs. Champion</h2>
+    <div class="divider" style="background:var(--green)"></div>
+    <div class="cols mt">
+      <div class="col col3">
+        <!-- Mockup of game board -->
+        <div class="gui-frame">
+          <div style="text-align:center;font-size:10px;color:var(--muted);margin-bottom:8px;letter-spacing:1px">OPPONENT (Bot)</div>
+          <div class="gui-row">
+            <div class="gui-zone" style="max-width:110px">
+              <div style="color:var(--text);font-size:12px;font-weight:700">Alolan Raichu</div>
+              <div style="font-size:10px">⚡️ ⚡️ ready</div>
+              <div class="hp-bar mt-sm"><div class="hp-fill" style="width:65%;background:var(--green)"></div></div>
+              <div style="font-size:9px;color:var(--muted)">130 / 200 HP</div>
+            </div>
+            <div class="gui-zone" style="flex:2">
+              Bench
+              <br>
+              <span class="gui-card-mini">Pika</span>
+              <span class="gui-card-mini">Pika</span>
+              <span class="gui-card-mini">—</span>
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--border);margin:8px 0;font-size:9px;color:var(--muted);text-align:center">― BOARD ―</div>
+          <div class="gui-row">
+            <div class="gui-zone" style="max-width:110px">
+              <div style="color:var(--text);font-size:12px;font-weight:700">Lycanroc</div>
+              <div style="font-size:10px;color:var(--orange)">◆ ◆ ◆ ready</div>
+              <div class="hp-bar mt-sm"><div class="hp-fill" style="width:90%;background:var(--green)"></div></div>
+              <div style="font-size:9px;color:var(--muted)">180 / 200 HP</div>
+            </div>
+            <div class="gui-zone" style="flex:2">
+              Bench
+              <br>
+              <span class="gui-card-mini">Rock</span>
+              <span class="gui-card-mini">Rock</span>
+              <span class="gui-card-mini">Rock</span>
+            </div>
+          </div>
+          <div style="margin-top:10px;background:rgba(255,255,255,.03);border-radius:6px;padding:8px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">YOUR HAND</div>
+            <div>
+              <span class="gui-card-mini" style="border-color:var(--orange)">Enrg</span>
+              <span class="gui-card-mini" style="border-color:#64b5f6">Evlv</span>
+              <span class="gui-card-mini">Item</span>
+              <span class="gui-card-mini">Pkm</span>
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px">
+            <div style="flex:1;background:rgba(229,57,53,.2);border:1px solid var(--red);border-radius:6px;padding:6px;font-size:11px;text-align:center;cursor:pointer">
+              ⚔️ Claw Slash 90
+            </div>
+            <div style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:11px;text-align:center;cursor:pointer;color:var(--muted)">
+              End Turn
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-green">Frontend Features</div>
+          <ul style="margin-top:8px">
+            <li>Dark-themed responsive board layout</li>
+            <li>27 real card images rendered in-browser</li>
+            <li>Energy type color-coding (Fighting=orange, Lightning=yellow, Psychic=purple)</li>
+            <li>HP bars with live updates</li>
+            <li>Legal moves highlighted — illegal grayed out</li>
+            <li>Attack info panel (damage, energy cost, effect)</li>
+          </ul>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-blue">Backend</div>
+          <ul style="margin-top:8px">
+            <li>Flask + threading for concurrent bot compute</li>
+            <li>Human picks deck (Lycanroc or Raichu)</li>
+            <li>Bot loads Champion weights automatically</li>
+            <li>Rolling 200-message game log</li>
+            <li>Deterministic greedy inference mode</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 9: Results ─── -->
+  <div class="slide" id="s9">
+    <div class="eyebrow">Training Results</div>
+    <h2>Champion Performance</h2>
+    <div class="divider" style="background:var(--yellow)"></div>
+    <div class="cols mt" style="align-items:center">
+      <div class="col center">
+        <div class="stat">
+          <div class="stat-num accent">92.6%</div>
+          <div class="stat-label">PPO (Lycanroc) win rate</div>
+        </div>
+        <div class="win-bar-wrap" style="margin-top:16px;max-width:280px;margin-left:auto;margin-right:auto">
+          <div class="win-bar-label"><span>vs Random</span><span class="accent">92.6%</span></div>
+          <div class="win-bar"><div class="win-bar-fill" style="width:92.6%;background:linear-gradient(90deg,var(--red),var(--yellow))"></div></div>
+          <div class="win-bar-label" style="margin-top:10px"><span>vs DQN</span><span class="accent">~60%</span></div>
+          <div class="win-bar"><div class="win-bar-fill" style="width:60%;background:linear-gradient(90deg,var(--red),var(--yellow))"></div></div>
+        </div>
+        <div class="card mt" style="text-align:left">
+          <div class="tag tag-red">PPO Profile</div>
+          <ul style="margin-top:8px">
+            <li>300k episode champion run</li>
+            <li>Highly aggressive — prefers KO wins</li>
+            <li>7,407 KOs vs 1,854 deckouts (in 10k eval)</li>
+            <li>Score: <span class="accent">38,889</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="col center">
+        <div class="stat">
+          <div class="stat-num" style="color:#64b5f6">75.6%</div>
+          <div class="stat-label">DQN (Raichu) win rate</div>
+        </div>
+        <div class="win-bar-wrap" style="margin-top:16px;max-width:280px;margin-left:auto;margin-right:auto">
+          <div class="win-bar-label"><span>vs Random</span><span style="color:#64b5f6">75.6%</span></div>
+          <div class="win-bar"><div class="win-bar-fill" style="width:75.6%;background:linear-gradient(90deg,#1565c0,#64b5f6)"></div></div>
+          <div class="win-bar-label" style="margin-top:10px"><span>vs PPO</span><span style="color:#64b5f6">~40%</span></div>
+          <div class="win-bar"><div class="win-bar-fill" style="width:40%;background:linear-gradient(90deg,#1565c0,#64b5f6)"></div></div>
+        </div>
+        <div class="card mt" style="text-align:left">
+          <div class="tag tag-blue">DQN Profile</div>
+          <ul style="margin-top:8px">
+            <li>50k episode champion run</li>
+            <li>Balanced — mixes KO and deckout wins</li>
+            <li>5,675 KOs vs 1,887 deckouts (in 10k eval)</li>
+            <li>Score: <span style="color:#64b5f6">30,262</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="col center">
+        <div class="stat">
+          <div class="stat-num green">980k</div>
+          <div class="stat-label">total training episodes</div>
+        </div>
+        <div class="card mt">
+          <div class="tag tag-yellow">Key Observations</div>
+          <ul style="margin-top:8px;text-align:left">
+            <li>PPO outperforms DQN by ~17 pp</li>
+            <li>On-policy more sample-efficient here</li>
+            <li>Extended training can hurt — policy collapse observed in later DQN runs</li>
+            <li>Behavioral cloning warm-start critical for early stability</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SLIDE 10: Takeaways ─── -->
+  <div class="slide" id="s10">
+    <div class="eyebrow">Summary</div>
+    <h2>Key Takeaways</h2>
+    <div class="divider" style="background:linear-gradient(90deg,var(--red),var(--yellow))"></div>
+    <div class="cols mt">
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-red">1. Self-Play Works</div>
+          <p>Two agents with opposing decks improve together through competitive play — no labeled data needed beyond a simple heuristic warm-start.</p>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-yellow">2. Reward Shaping is Critical</div>
+          <p>Raw win/loss alone is too sparse. 15 shaped signals — especially the <span class="neg">-0.20</span> end-turn penalty — turn passive agents into aggressive attackers.</p>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-green">3. Pure NumPy is Viable</div>
+          <p>Full Actor-Critic PPO and Double DQN built from scratch with NumPy. No PyTorch or TensorFlow dependency — every gradient written by hand.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card">
+          <div class="tag tag-blue">4. PPO vs DQN Tradeoffs</div>
+          <p>PPO (on-policy) converges to a higher win rate but needs full rollout buffers. DQN (off-policy) updates every turn using replay — faster per-step, lower peak.</p>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-purple">5. Legal Action Masking</div>
+          <p>Masking invalid actions to −∞ before softmax is the single biggest stability win — agents never waste exploration on illegal moves, cutting training time significantly.</p>
+        </div>
+        <div class="card mt-sm">
+          <div class="tag tag-green">6. Playable GUI</div>
+          <p>Flask web interface makes the trained champions tangible — humans can challenge the PPO champion directly, with real-time board state and energy visualization.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end deck -->
+
+<div id="nav">
+  <button id="prev">&#8592;</button>
+  <span id="counter">1 / 10</span>
+  <button id="next">&#8594;</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  let cur = 0;
+
+  function go(n) {
+    slides[cur].classList.remove('active');
+    cur = Math.max(0, Math.min(n, slides.length - 1));
+    slides[cur].classList.add('active');
+    counter.textContent = (cur + 1) + ' / ' + slides.length;
+    progress.style.width = ((cur + 1) / slides.length * 100) + '%';
+  }
+
+  document.getElementById('prev').addEventListener('click', () => go(cur - 1));
+  document.getElementById('next').addEventListener('click', () => go(cur + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') go(cur + 1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')                      go(cur - 1);
+  });
+
+  go(0);
+</script>
+</body>
+</html>

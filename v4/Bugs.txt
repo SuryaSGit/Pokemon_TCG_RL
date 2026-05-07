@@ -1,0 +1,92 @@
+﻿🔴 Critical Bugs (wrong game behavior)
+1. _end_turn does not call start_turn — turn transitions rely on the caller
+In GameEngine._end_turn, the method switches current_player and increments turn_number, but never calls start_turn. PokemonTCGEnv.step does call start_turn after a player switch, but _end_turn inside GameEngine._attack also calls _end_turn directly, which means the attacker's pending attack restrictions (blocked_attacks_pending, cant_attack_turns_pending) and status-effect resolution are only processed if step notices the player changed. If the game ends mid-attack this is fine, but any path that calls _end_turn without going back through step (e.g., in unit tests calling engine.apply_action directly) will silently skip start_turn.
+2. come_and_get_you places Duskull onto bench but never triggers Risky Ruins damage
+In _attack → effect == "come_and_get_you", Duskull cards are benched directly (me.bench.append(...)) without going through _play_pokemon. Therefore the Risky Ruins stadium check (lines 1201–1204) is never applied to these newly benched Duskull. The bench-entry ability trigger is also skipped for this path, though Duskull has no bench-entry ability so that's harmless.
+3. tuck_tail does not trigger start_turn / promotion interrupt correctly when bench has >1 Pokémon
+When tuck_tail is used and the bench has >1 Pokémon, me.pending_promotion = True is set, then return reward exits _attack, then _end_turn is called by apply_action. The promotion interrupt in compute_legal_mask does handle this. However, final_damage at this point is still whatever value from the previous elif branch — it's not set to 0 before the damage-application block. The return reward exits before the final_damage block, so this is actually safe, but the code is fragile and unclear.
+
+
+6. _handle_ko does not set loser._had_ko_this_opp_turn = True for bench KOs
+In _handle_ko, the flag loser._had_ko_this_opp_turn = True is only set inside the if is_active: branch (line 1936). If a bench Pokémon is KO'd (e.g. by Jetting Blow's bench damage, Cursed Blast targeting a bench Pokémon, or Cruel Arrow), the flag is never set. This means Flip the Script (Fezandipiti ex) and Unfair Stamp will not trigger for the player whose bench Pokémon was knocked out, even though the card text says "if any of your Pokémon were Knocked Out."
+python
+# In the `else` (bench KO) branch, add:
+loser._had_ko_this_opp_turn = True
+7. wild_press self-damage is applied before opponent damage, but a self-KO skips the opponent attack entirely
+In effect == "wild_press" (lines 1815–1824), Hariyama deals 70 damage to itself first. If that KOs Hariyama (current_hp <= 0), _handle_ko is called and the method returns early — the 210 damage to the opponent's active is never dealt. The card says "this Pokémon also does 70 damage to itself," implying both happen. The self-damage should be applied after the opponent takes damage (or at minimum, after final_damage is set and the opponent hit is resolved).
+8. _do_retreat does not clear shadow_bound
+shadow_bound is checked in compute_legal_mask to block retreat (line 923). However, when a Pokémon successfully retreats (via Switch item or after status clears), _do_retreat does not clear shadow_bound on the Pokémon being sent to bench. It stays set on the old active even after it's benched. shadow_bound should be cleared on active before swapping:
+python
+active.shadow_bound = False  # add before active.is_active = False
+9. _deckout winner is wrong when KO counts are equal
+In _draw_n (lines 1063–1064):
+python
+gs.winner = pidx if me_kos > opp_kos else opp
+If me_kos == opp_kos, this assigns winner = opp (the non-decking-out player), which is correct. But if the decking-out player actually has more KOs, they win — which is also implemented correctly. The only issue is when tied: there's no draw/tie result; it just picks opp. A tie should ideally set gs.winner = -1. Minor but worth noting.
+________________
+
+
+🟡 Moderate Bugs (incorrect card implementation)
+10. come_and_get_you attack has the wrong Pokémon name in build_starmie_deck
+The attack is defined on Duskull but the card description says it is Duskull's attack, so the name check (dc.name == "Duskull") is correct. ✓
+11. Seasoned Skill (Blood Moon) cost reduction is checked incorrectly
+In compute_legal_mask (lines 911–916):
+python
+if (atk.effect == "blood_moon"
+        and me.active.ability_effect == "seasoned_skill"):
+    effective_cost = max(0, 5 - opp.ko_count)
+    if me.active.total_energy() >= effective_cost:
+This is correct in logic. But can_pay_cost uses typed energy checks, while total_energy() is used here — Blood Moon costs 5C (all colorless), so total_energy() is fine. ✓
+12. Munkidori Adrena-Brain: the moved damage counters can over-heal the source Pokémon
+In _use_ability → adrena_brain (lines 1626–1632):
+python
+moved = min(3, (source.hp - source.current_hp) // 10)
+for _ in range(moved):
+    if source.current_hp < source.hp:
+        source.current_hp += 10
+The card says "move up to 3 damage counters." One damage counter = 10 HP. (source.hp - source.current_hp) // 10 correctly counts existing damage counters. The inner if source.current_hp < source.hp guard is correct. This is fine. ✓
+13. Hilda shuffles deck only if an Evolution Pokémon was found — Energy is still fetched even without finding an Evolution
+In _use_supporter → "hilda" (lines 1406–1418):
+python
+for i, dc in enumerate(me.deck):
+    if isinstance(dc, PokemonCard) and dc.stage != Stage.BASIC:
+        me.hand.append(me.deck.pop(i))
+        found_evo = True
+        break
+for i, dc in enumerate(me.deck):
+    if isinstance(dc, EnergyCard):
+        me.hand.append(me.deck.pop(i))
+        break
+if found_evo:
+    self._shuffle(me.deck)
+If no Evolution Pokémon exists in the deck, the energy is still fetched but the deck is not shuffled. The deck order is revealed/leaked. The deck should always be shuffled after a search. Also, the card text says "Search your deck for an Evolution Pokémon and an Energy card" — both should be fetched together or not at all, but failing silently and only fetching energy is a card-rule violation.
+14. Buddy-Buddy Poffin puts Pokémon directly to bench with turn_played = gs.turn_number — they cannot be evolved the same turn, which is correct, but Risky Ruins is not applied
+Same issue as bug #2: Pokémon placed onto the bench via Buddy-Buddy Poffin (lines 1308–1311) do not go through _play_pokemon, so the Risky Ruins damage check on line 1202 is skipped.
+________________
+
+
+🟠 Logic / Design Bugs
+15. SelfPlayEnv._get_mask temporarily mutates gs.current_player
+Both _get_obs and _get_mask temporarily set gs.current_player = player_idx and restore it afterward. If an exception is raised mid-call, gs.current_player is left corrupted. More importantly, compute_legal_mask reads gs.current_player directly, so calling obs_and_mask(1) while it's actually player 0's turn is intentional for training — but this pattern is fragile. No crash, but worth noting.
+16. play_and_train.py run_training: DQN dqn_prev stores obs1 as next-obs for terminal transitions with itself as next_obs
+At the end-of-episode flush (lines 294–298):
+python
+dqn.store(prev_obs, prev_action, prev_reward,
+          prev_obs, True, prev_mask, ...)
+prev_obs is used as both obs and next_obs. It should be the actual last obs1 from the last senv.step() call. The last obs1 is available in the loop but not saved to dqn_prev when done=True (that branch sets dqn_prev = None). However, since done=True, the bootstrap target isn't used, so this is a minor accuracy issue but not a crash.
+17. _promote only promotes for the first player with pending_promotion = True
+_promote iterates for pidx in range(2) but returns immediately after the first promotion. If by some edge case both players have pending_promotion = True simultaneously, the second player's promotion is silently skipped. Unlikely in practice, but a latent bug.
+18. Ultra Ball discards non-Pokémon cards only, but the card text says "discard 2 other cards from your hand" — any 2 non-Ultra-Ball cards
+The implementation (lines 1264–1272) correctly discards non-Pokémon cards first. However, a player with only one non-Pokémon non-Ultra Ball card in hand (e.g., just one energy) will not have 2 cards to discard. The legal mask check (lines 839–842) uses:
+python
+non_pokemon = [x for x in me.hand if not isinstance(x, PokemonCard)]
+if len(non_pokemon) >= 2:
+This counts the Ultra Ball itself! If the hand has only 1 energy + Ultra Ball, len(non_pokemon) == 2 (energy + Ultra Ball), so it appears legal — but in _use_item, Ultra Ball is already popped from hand before the discard loop runs, so only 1 card actually gets discarded. The legality check includes the Ultra Ball card itself in non_pokemon but the execution does not.
+Fix: subtract 1 from the count in the mask check, or check len(non_pokemon) >= 3 (counting Ultra Ball itself in the hand).
+________________
+
+
+🔵 Minor / Card Text Mismatches
+19. Risky Ruins only applies to _play_pokemon but should also fire on Buddy-Buddy Poffin and come_and_get_you (already covered in bugs 2 and 14).
+20. shadow_bind sets opp.active.shadow_bound = True even when no damage is dealt (e.g., if Confused self-hit occurs)
+The shadow_bind flag is set before the confused coin-flip, so even if the attack fails due to confusion, the opponent's Pokémon is still Shadow Bound for a turn. Card text implies the effect fires on a successful attack. Minor rules interpretation issue.

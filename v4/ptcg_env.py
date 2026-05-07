@@ -61,6 +61,7 @@ class ActionType(IntEnum):
     ATTACH_TOOL   = 9
     USE_ABILITY   = 10
     USE_STADIUM   = 11
+    CHOOSE        = 12   # resolve a pending_choice (select one option)
 
 MAX_BENCH   = 5
 MAX_ATTACKS = 2
@@ -264,7 +265,7 @@ def build_starmie_deck() -> List[Card]:
     cards.append(PokemonCard(
         "Fezandipiti ex", 210, Stage.BASIC, None,
         [Attack("Cruel Arrow", 100, _e("3C"), effect="cruel_arrow")],
-        pokemon_type=EnergyType.PSYCHIC, retreat_cost=2,
+        pokemon_type=EnergyType.PSYCHIC, retreat_cost=1,
         is_ex=True,
         ability_name="Flip the Script",
         ability_effect="flip_the_script",
@@ -398,7 +399,7 @@ def build_lucario_deck() -> List[Card]:
     cards.append(TrainerCard("Wally's Compassion", CardType.SUPPORTER, "wally_compassion"))
     for _ in range(4):
         cards.append(TrainerCard("Fighting Gong", CardType.ITEM, "fighting_gong"))
-    for _ in range(3):
+    for _ in range(4):
         cards.append(TrainerCard("Poké Pad", CardType.ITEM, "poke_pad"))
     for _ in range(4):
         cards.append(TrainerCard("Premium Power Pro", CardType.ITEM, "premium_power_pro"))
@@ -435,7 +436,7 @@ class PlayerState:
     supporter_used: bool = False
     turn_count: int = 0
     pending_promotion: bool = False
-    preferred_attach_hand_idx: Optional[int] = None
+    pending_choice: Optional[Dict] = None  # interrupt: current player must make a sub-choice
     # Per-turn flags
     had_ko_last_turn: bool = False     # my Pokémon were KO'd last opp turn
     ko_gained_last_turn: int = 0       # KO points I gained last turn (for Unfair Stamp conditions)
@@ -478,6 +479,7 @@ class GameState:
     last_damage_reduced: bool = False
     mega_evolved_this_turn: bool = False  # turn ends after mega evolving
     legacy_energy_used: bool = False      # Legacy Energy KO effect already consumed
+    ui_choice: Optional[Dict] = None     # Human-UI pre-set choice for interactive effects
 
     def opponent(self) -> int:
         return 1 - self.current_player
@@ -494,54 +496,61 @@ class GameState:
 
 class ActionMapper:
     """
-    Flat discrete action space (217 actions total).
+    Flat discrete action space (295 actions total).
 
     [0]                END_TURN
-    [1..6]             ATTACH_ENERGY  to active(slot=0) or bench[0..4]     6
-    [7..18]            PLAY_POKEMON   from hand[i]                         12
-    [19..30]           USE_ITEM       from hand[i]                         12
-    [31..42]           USE_SUPPORTER  from hand[i]                         12
-    [43..114]          EVOLVE         hand[h] × slot[s]; slot 5=active     72
-    [115..116]         ATTACK         atk_idx 0..1                          2
-    [117..121]         PROMOTE        bench slot 0..4                        5
-    [122..126]         RETREAT        bench slot to bring up 0..4            5
-    [127..198]         ATTACH_TOOL    hand[h] × slot[s]; slot 5=active      72
-    [199..204]         USE_ABILITY    slot: 0=active 1..5=bench[0..4]        6
-    [205..216]         USE_STADIUM    from hand[i]                          12
+    [1..72]            ATTACH_ENERGY  hand[h] × slot[s]; slot 5=active    72
+    [73..84]           PLAY_POKEMON   from hand[i]                         12
+    [85..96]           USE_ITEM       from hand[i]                         12
+    [97..108]          USE_SUPPORTER  from hand[i]                         12
+    [109..180]         EVOLVE         hand[h] × slot[s]; slot 5=active     72
+    [181..182]         ATTACK         atk_idx 0..1                          2
+    [183..187]         PROMOTE        bench slot 0..4                        5
+    [188..192]         RETREAT        bench slot to bring up 0..4            5
+    [193..264]         ATTACH_TOOL    hand[h] × slot[s]; slot 5=active      72
+    [265..270]         USE_ABILITY    slot: 0=active 1..5=bench[0..4]        6
+    [271..282]         USE_STADIUM    from hand[i]                          12
+    [283..294]         CHOOSE         opt_idx 0..11 (pending_choice resolve) 12
     """
 
     END_TURN_IDX      = 0
     ATTACH_START      = 1
-    ATTACH_COUNT      = MAX_BENCH + 1           # 6
-    PLAY_START        = 7
+    ATTACH_COUNT      = MAX_HAND * (MAX_BENCH + 1)   # 72
+    PLAY_START        = 73
     PLAY_COUNT        = MAX_HAND                # 12
-    ITEM_START        = 19
+    ITEM_START        = 85
     ITEM_COUNT        = MAX_HAND
-    SUPP_START        = 31
+    SUPP_START        = 97
     SUPP_COUNT        = MAX_HAND
-    EVOLVE_START      = 43
+    EVOLVE_START      = 109
     EVOLVE_COUNT      = MAX_HAND * (MAX_BENCH + 1)   # 72
-    ATTACK_START      = 115
+    ATTACK_START      = 181
     ATTACK_COUNT      = MAX_ATTACKS             # 2
-    PROMOTE_START     = 117
+    PROMOTE_START     = 183
     PROMOTE_COUNT     = MAX_BENCH               # 5
-    RETREAT_START     = 122
+    RETREAT_START     = 188
     RETREAT_COUNT     = MAX_BENCH               # 5
-    TOOL_START        = 127
+    TOOL_START        = 193
     TOOL_COUNT        = MAX_HAND * (MAX_BENCH + 1)   # 72
-    ABILITY_START     = 199
+    ABILITY_START     = 265
     ABILITY_COUNT     = MAX_BENCH + 1           # 6  (active=0, bench[0..4]=1..5)
-    STADIUM_START     = 205
+    STADIUM_START     = 271
     STADIUM_COUNT     = MAX_HAND                # 12
+    CHOOSE_START      = 283
+    CHOOSE_COUNT      = 12                      # option slots 0..11
 
-    TOTAL_ACTIONS     = 217
+    TOTAL_ACTIONS     = 295
 
     @classmethod
     def decode(cls, idx: int) -> Tuple[ActionType, Dict]:
         if idx == cls.END_TURN_IDX:
             return ActionType.END_TURN, {}
         if cls.ATTACH_START <= idx < cls.ATTACH_START + cls.ATTACH_COUNT:
-            return ActionType.ATTACH_ENERGY, {"slot": idx - cls.ATTACH_START}
+            offset = idx - cls.ATTACH_START
+            return ActionType.ATTACH_ENERGY, {
+                "hand_idx": offset // (MAX_BENCH + 1),
+                "slot":     offset %  (MAX_BENCH + 1),
+            }
         if cls.PLAY_START <= idx < cls.PLAY_START + cls.PLAY_COUNT:
             return ActionType.PLAY_POKEMON, {"hand_idx": idx - cls.PLAY_START}
         if cls.ITEM_START <= idx < cls.ITEM_START + cls.ITEM_COUNT:
@@ -570,6 +579,8 @@ class ActionMapper:
             return ActionType.USE_ABILITY, {"slot": idx - cls.ABILITY_START}
         if cls.STADIUM_START <= idx < cls.STADIUM_START + cls.STADIUM_COUNT:
             return ActionType.USE_STADIUM, {"hand_idx": idx - cls.STADIUM_START}
+        if cls.CHOOSE_START <= idx < cls.CHOOSE_START + cls.CHOOSE_COUNT:
+            return ActionType.CHOOSE, {"opt_idx": idx - cls.CHOOSE_START}
         raise ValueError(f"Invalid action index {idx}")
 
     @classmethod
@@ -577,7 +588,7 @@ class ActionMapper:
         if atype == ActionType.END_TURN:
             return cls.END_TURN_IDX
         if atype == ActionType.ATTACH_ENERGY:
-            return cls.ATTACH_START + params["slot"]
+            return cls.ATTACH_START + params["hand_idx"] * (MAX_BENCH + 1) + params["slot"]
         if atype == ActionType.PLAY_POKEMON:
             return cls.PLAY_START + params["hand_idx"]
         if atype == ActionType.USE_ITEM:
@@ -598,6 +609,8 @@ class ActionMapper:
             return cls.ABILITY_START + params["slot"]
         if atype == ActionType.USE_STADIUM:
             return cls.STADIUM_START + params["hand_idx"]
+        if atype == ActionType.CHOOSE:
+            return cls.CHOOSE_START + params["opt_idx"]
         raise ValueError(f"Unknown action type {atype}")
 
 # ─────────────────────────────────────────────
@@ -616,26 +629,29 @@ class StateEncoder:
       retreat_cost_norm, ability_available
 
     Layout:
-      my_active   13
-      opp_active  13
-      my_bench    5×13 = 65
-      opp_bench   5×13 = 65
-      hand_hist   6  (pokemon/energy/item/supporter/tool/stadium counts /15)
-      opp_hand    1
-      my_deck     1
-      opp_deck    1
-      my_ko       1
-      opp_ko      1
-      energy_used 1
-      supp_used   1
-      turn_norm   1
-      going_first 1
-      stadium     1   (0=none, 0.5=risky_ruins, 1=gravity_mountain)
-      bb_active   1   (black_belt_training this turn)
-      ─────────────
-      Total: 173
+      my_active        13
+      opp_active       13
+      my_bench         5×13 = 65
+      opp_bench        5×13 = 65
+      hand_hist        6  (pokemon/energy/item/supporter/tool/stadium counts /15)
+      hand_energy_type 12 (per-slot: 0=no card/not energy, (type.value+1)/6 if energy)
+      opp_hand         1
+      my_deck          1
+      opp_deck         1
+      my_ko            1
+      opp_ko           1
+      energy_used      1
+      supp_used        1
+      turn_norm        1
+      going_first      1
+      stadium          1   (0=none, 0.5=risky_ruins, 1=gravity_mountain)
+      bb_active        1   (black_belt_training this turn)
+      pending_active   1   (1 if pending_choice is set)
+      choice_opts      12×4 = 48  (per option: valid, category/6, hp_frac, id_norm)
+      ─────────────────
+      Total: 234
     """
-    STATE_SIZE = 173
+    STATE_SIZE = 234
 
     # Active ability effects (require USE_ABILITY action)
     ACTIVE_ABILITY_EFFECTS = {
@@ -698,6 +714,16 @@ class StateEncoder:
             elif ct == CardType.STADIUM:   counts[5] += 1
         vec.append(np.array([c / 15.0 for c in counts], dtype=np.float32))
 
+        # Per-slot hand energy type (12 features): lets agent see which hand
+        # position holds Water vs Darkness energy when choosing hand_idx for attach
+        hand_energy = np.zeros(MAX_HAND, dtype=np.float32)
+        for i, c in enumerate(me.hand):
+            if i >= MAX_HAND:
+                break
+            if isinstance(c, EnergyCard):
+                hand_energy[i] = (c.energy_type.value + 1) / 6.0
+        vec.append(hand_energy)
+
         vec.append(np.array([len(opp.hand) / 15.0], dtype=np.float32))
         vec.append(np.array([len(me.deck)  / MAX_DECK], dtype=np.float32))
         vec.append(np.array([len(opp.deck) / MAX_DECK], dtype=np.float32))
@@ -718,6 +744,111 @@ class StateEncoder:
         vec.append(np.array([stadium_val], dtype=np.float32))
         vec.append(np.array([float(me.black_belt_active)], dtype=np.float32))
 
+        # ── Pending choice features (1 + 12×4 = 49) ────────────────────────────
+        pc       = me.pending_choice
+        pc_type  = pc["type"] if pc is not None else ""
+        pc_opts  = pc["options"] if pc is not None else []
+        vec.append(np.array([float(pc is not None)], dtype=np.float32))
+
+        def _opt_features(opt_val: int) -> np.ndarray:
+            """Return [valid=1, category/6, hp_frac, id_norm] for one option slot."""
+            cat = 0.0; hp_frac = 0.0; id_n = 0.0
+            if pc_type in ("ultra_ball_discard1", "ultra_ball_discard2"):
+                if opt_val < len(me.hand):
+                    cat = 1/6.0
+                    id_n = getattr(me.hand[opt_val], 'card_type',
+                                   CardType.ENERGY).value / 5.0
+            elif pc_type == "ultra_ball_pick":
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], PokemonCard):
+                    cat = 2/6.0; hp_frac = 1.0
+                    id_n = POKEMON_IDS.get(me.deck[opt_val].name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type in ("poffin_pick1", "poffin_pick2"):
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], PokemonCard):
+                    cat = 2/6.0; hp_frac = 1.0
+                    id_n = POKEMON_IDS.get(me.deck[opt_val].name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "night_stretcher_pick":
+                if opt_val < len(me.discard):
+                    c = me.discard[opt_val]; cat = 3/6.0
+                    if isinstance(c, PokemonCard):
+                        hp_frac = 1.0
+                        id_n = POKEMON_IDS.get(c.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+                    else:
+                        id_n = getattr(c, 'card_type', CardType.ENERGY).value / 5.0
+            elif pc_type == "boss_orders_pick":
+                if opt_val < len(opp.bench):
+                    p = opp.bench[opt_val]; cat = 5/6.0
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "switch_target":
+                if opt_val < len(me.bench):
+                    p = me.bench[opt_val]; cat = 6/6.0
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type in ("poke_pad_pick", "hilda_evo_pick"):
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], PokemonCard):
+                    p = me.deck[opt_val]; cat = 2/6.0
+                    hp_frac = p.stage / 2.0
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "hilda_energy_pick":
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], EnergyCard):
+                    cat = 1/6.0
+                    id_n = me.deck[opt_val].energy_type.value / 5.0
+            elif pc_type == "last_ditch_catch_pick":
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], TrainerCard):
+                    cat = 3/6.0
+                    id_n = me.deck[opt_val].card_type.value / 5.0
+            elif pc_type == "cursed_blast_target":
+                if opt_val == 0:
+                    p = opp.active; cat = 4/6.0
+                else:
+                    bi = opt_val - 1
+                    p  = opp.bench[bi] if bi < len(opp.bench) else None; cat = 5/6.0
+                if p is not None:
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "cruel_arrow_target":
+                if opt_val == 0:
+                    p = opp.active; cat = 4/6.0
+                else:
+                    bi = opt_val - 1
+                    p  = opp.bench[bi] if bi < len(opp.bench) else None; cat = 5/6.0
+                if p is not None:
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "aura_jab_energy":
+                if opt_val < len(me.bench):
+                    p = me.bench[opt_val]; cat = 6/6.0
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "heave_ho_target":
+                if opt_val < len(opp.bench):
+                    p = opp.bench[opt_val]; cat = 5/6.0
+                    hp_frac = p.hp_fraction()
+                    id_n = POKEMON_IDS.get(p.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "pokegear_pick":
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], TrainerCard):
+                    cat = 3/6.0
+                    id_n = me.deck[opt_val].card_type.value / 5.0
+            elif pc_type == "fighting_gong_pick":
+                if opt_val < len(me.deck):
+                    c = me.deck[opt_val]
+                    if isinstance(c, EnergyCard):
+                        cat = 1/6.0; id_n = c.energy_type.value / 5.0
+                    elif isinstance(c, PokemonCard):
+                        cat = 2/6.0; hp_frac = c.hp / 250.0
+                        id_n = POKEMON_IDS.get(c.name, 0) / max(NUM_POKEMON_IDS-1, 1)
+            elif pc_type == "petrel_pick":
+                if opt_val < len(me.deck) and isinstance(me.deck[opt_val], TrainerCard):
+                    cat = 3/6.0
+                    id_n = me.deck[opt_val].card_type.value / 5.0
+            return np.array([1.0, cat, hp_frac, id_n], dtype=np.float32)
+
+        for slot_i in range(12):
+            if slot_i < len(pc_opts):
+                vec.append(_opt_features(pc_opts[slot_i]))
+            else:
+                vec.append(np.zeros(4, dtype=np.float32))
+
         result = np.concatenate([v.flatten() for v in vec])
         assert result.shape == (cls.STATE_SIZE,), \
             f"State size mismatch: {result.shape} vs expected ({cls.STATE_SIZE},)"
@@ -728,18 +859,27 @@ class StateEncoder:
 # ─────────────────────────────────────────────
 
 def can_pay_cost(pokemon: PokemonCard, cost: Dict[EnergyType, int]) -> bool:
-    """Check if pokemon can pay an attack's energy cost."""
+    """Check if pokemon can pay an attack's energy cost.
+    Legacy Energy (stored as COLORLESS) acts as any energy type."""
     required = dict(cost)
     available = dict(pokemon.energy)
+    # Legacy Energy: the COLORLESS stored for it can fill any typed requirement
+    wildcards = available.pop(EnergyType.COLORLESS, 0) if pokemon.has_legacy_energy else 0
     for etype, amount in required.items():
         if etype == EnergyType.COLORLESS:
             continue
         have = available.get(etype, 0)
         if have < amount:
-            return False
-        available[etype] = have - amount
+            need = amount - have
+            if wildcards >= need:
+                wildcards -= need
+                available[etype] = 0
+            else:
+                return False
+        else:
+            available[etype] = have - amount
     colorless_needed = required.get(EnergyType.COLORLESS, 0)
-    return sum(available.values()) >= colorless_needed
+    return sum(available.values()) + wildcards >= colorless_needed
 
 
 def can_evolve(evo_card: PokemonCard, target: PokemonCard,
@@ -747,7 +887,12 @@ def can_evolve(evo_card: PokemonCard, target: PokemonCard,
     """Can evo_card evolve target? Must not be played this turn."""
     if evo_card.evolves_from != target.name:
         return False
-    if target.turn_played < 0 or target.turn_played >= turn_number:
+    if target.turn_played < 0:
+        return False
+    # Initial Pokemon (placed at game setup, turn_played=0) cannot evolve on turns 1 or 2
+    if target.turn_played == 0 and turn_number <= 2:
+        return False
+    if target.turn_played >= turn_number:
         return False
     if evo_card.stage != target.stage + 1:
         return False
@@ -779,6 +924,13 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
     me  = gs.current()
     opp = gs.opp()
 
+    # ── PENDING CHOICE INTERRUPT (highest priority) ─────────────────────────
+    if me.pending_choice is not None:
+        opts = me.pending_choice.get("options", [])
+        for i in range(min(len(opts), ActionMapper.CHOOSE_COUNT)):
+            mask[ActionMapper.CHOOSE_START + i] = 1.0
+        return mask
+
     # ── PROMOTION INTERRUPT ─────────────────────────────────────────────────
     for pidx in range(2):
         p = gs.players[pidx]
@@ -787,33 +939,23 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
                 mask[ActionMapper.PROMOTE_START + i] = 1.0
             return mask
 
-    # ── After mega evolution, only END_TURN ──────────────────────────────────
-    if gs.mega_evolved_this_turn:
-        mask[ActionMapper.END_TURN_IDX] = 1.0
-        return mask
 
     mask[ActionMapper.END_TURN_IDX] = 1.0
 
     active_status = me.active.status if me.active else None
 
     # ── ATTACH_ENERGY ────────────────────────────────────────────────────────
-    has_energy_in_hand = any(isinstance(c, EnergyCard) for c in me.hand)
-    if has_energy_in_hand and not me.energy_used:
-        SCALING_EFFECTS = {"discard_lightning_30each"}
-
-        def _needs_energy(p: Optional[PokemonCard]) -> bool:
-            if p is None or not p.attacks:
-                return False
-            for atk in p.attacks:
-                if not can_pay_cost(p, atk.energy_cost):
-                    return True
-            return any(a.effect in SCALING_EFFECTS for a in p.attacks)
-
-        if me.active is not None and _needs_energy(me.active):
-            mask[ActionMapper.ATTACH_START] = 1.0
-        for i, bp in enumerate(me.bench):
-            if _needs_energy(bp):
-                mask[ActionMapper.ATTACH_START + 1 + i] = 1.0
+    if not me.energy_used:
+        for hi, hc in enumerate(me.hand):
+            if hi >= MAX_HAND:
+                break
+            if not isinstance(hc, EnergyCard):
+                continue
+            # Allow attaching to any in-play Pokemon — agent is shaped by reward
+            if me.active is not None:
+                mask[ActionMapper.ATTACH_START + hi * (MAX_BENCH + 1) + MAX_BENCH] = 1.0
+            for bi in range(len(me.bench)):
+                mask[ActionMapper.ATTACH_START + hi * (MAX_BENCH + 1) + bi] = 1.0
 
     # ── PLAY_POKEMON (bench basics) ──────────────────────────────────────────
     if len(me.bench) < MAX_BENCH:
@@ -835,10 +977,10 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
             if eff in ("heal_active_20", "heal_active_30"):
                 if me.active and me.active.current_hp < me.active.hp:
                     mask[ActionMapper.ITEM_START + i] = 1.0
-            # Ultra Ball: need 2 cards to discard
+            # Ultra Ball: need 2 other cards to discard (any type, exclude the Ultra Ball itself)
             elif eff == "ultra_ball":
-                non_pokemon = [x for x in me.hand if not isinstance(x, PokemonCard)]
-                if len(non_pokemon) >= 2:
+                discardable = sum(1 for x in me.hand if x is not c)
+                if discardable >= 2:
                     mask[ActionMapper.ITEM_START + i] = 1.0
             # Switch: need a bench pokemon
             elif eff == "switch_item":
@@ -857,6 +999,26 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
                 )
                 if has_poke_in_disc or has_energy_in_disc:
                     mask[ActionMapper.ITEM_START + i] = 1.0
+            # Poké Pad: need a non-Rule-Box (non-ex) Pokémon in deck
+            elif eff == "poke_pad":
+                if any(isinstance(dc, PokemonCard) and not dc.is_ex for dc in me.deck):
+                    mask[ActionMapper.ITEM_START + i] = 1.0
+            # Pokégear 3.0: need a Supporter in top 7 of deck
+            elif eff == "pokegear":
+                if any(isinstance(dc, TrainerCard) and dc.card_type == CardType.SUPPORTER
+                       for dc in me.deck[:7]):
+                    mask[ActionMapper.ITEM_START + i] = 1.0
+            # Fighting Gong: need a Fighting Energy or Fighting Basic Pokémon in deck
+            elif eff == "fighting_gong":
+                has_target = any(
+                    (isinstance(dc, EnergyCard) and dc.energy_type == EnergyType.FIGHTING
+                     and dc.special_effect is None)
+                    or (isinstance(dc, PokemonCard) and dc.stage == Stage.BASIC
+                        and dc.pokemon_type == EnergyType.FIGHTING)
+                    for dc in me.deck
+                )
+                if has_target:
+                    mask[ActionMapper.ITEM_START + i] = 1.0
             else:
                 mask[ActionMapper.ITEM_START + i] = 1.0
 
@@ -874,6 +1036,15 @@ def compute_legal_mask(gs: GameState) -> np.ndarray:
                         mask[ActionMapper.SUPP_START + i] = 1.0
                 elif eff == "boss_orders":
                     if opp.bench:
+                        mask[ActionMapper.SUPP_START + i] = 1.0
+                # Hilda: need at least 1 Evolution Pokémon in deck
+                elif eff == "hilda":
+                    if any(isinstance(dc, PokemonCard) and dc.stage != Stage.BASIC
+                           for dc in me.deck):
+                        mask[ActionMapper.SUPP_START + i] = 1.0
+                # Team Rocket's Petrel: need a Trainer card in deck
+                elif eff == "team_rockets_petrel":
+                    if any(isinstance(dc, TrainerCard) for dc in me.deck):
                         mask[ActionMapper.SUPP_START + i] = 1.0
                 else:
                     mask[ActionMapper.SUPP_START + i] = 1.0
@@ -1060,7 +1231,8 @@ class GameEngine:
                 opp = 1 - pidx
                 me_kos  = gs.players[pidx].ko_count
                 opp_kos = gs.players[opp].ko_count
-                gs.winner    = pidx if me_kos > opp_kos else opp
+                gs.winner    = (pidx if me_kos > opp_kos
+                                else (opp if opp_kos > me_kos else -1))
                 gs.win_reason = "deckout"
                 return False
             p.hand.append(p.deck.pop(0))
@@ -1115,8 +1287,11 @@ class GameEngine:
             self._end_turn(gs)
             return reward, gs.game_over
 
-        if atype == ActionType.ATTACH_ENERGY:
-            self._attach_energy(gs, params["slot"])
+        if atype == ActionType.CHOOSE:
+            r = self._handle_choice(gs, params["opt_idx"])
+            reward += r
+        elif atype == ActionType.ATTACH_ENERGY:
+            self._attach_energy(gs, params["hand_idx"], params["slot"])
         elif atype == ActionType.PLAY_POKEMON:
             self._play_pokemon(gs, params["hand_idx"])
         elif atype == ActionType.USE_ITEM:
@@ -1138,36 +1313,29 @@ class GameEngine:
         elif atype == ActionType.ATTACK:
             r = self._attack(gs, params["atk_idx"])
             reward += r
-            self._end_turn(gs)
+            # Only end the turn now if the attack didn't create a pending_choice
+            if me.pending_choice is None:
+                self._end_turn(gs)
 
         return reward, gs.game_over
 
     # ── Sub-actions ──────────────────────────────────────────────────────────
 
-    def _attach_energy(self, gs: GameState, slot: int) -> None:
+    def _attach_energy(self, gs: GameState, hand_idx: int, slot: int) -> None:
         me = gs.current()
         if me.energy_used:
             return
-        target = (me.active if slot == 0 else
-                  (me.bench[slot - 1] if 0 <= slot - 1 < len(me.bench) else None))
+        # slot 5 (MAX_BENCH) = active; slots 0..4 = bench[0..4]
+        target = (me.active if slot == MAX_BENCH else
+                  (me.bench[slot] if slot < len(me.bench) else None))
         if target is None:
             return
-
-        chosen_idx = -1
-        pref = me.preferred_attach_hand_idx
-        if (pref is not None and 0 <= pref < len(me.hand)
-                and isinstance(me.hand[pref], EnergyCard)):
-            chosen_idx = pref
-        else:
-            for i, c in enumerate(me.hand):
-                if isinstance(c, EnergyCard):
-                    chosen_idx = i
-                    break
-        me.preferred_attach_hand_idx = None
-        if chosen_idx < 0:
+        if hand_idx >= len(me.hand):
+            return
+        if not isinstance(me.hand[hand_idx], EnergyCard):
             return
 
-        e_card: EnergyCard = me.hand.pop(chosen_idx)
+        e_card: EnergyCard = me.hand.pop(hand_idx)
 
         if e_card.special_effect == "ignition_energy":
             # Provides 1C to Basic, 3C to Evolution; discards at end of turn
@@ -1215,12 +1383,12 @@ class GameEngine:
         me = gs.players[owner_idx]
 
         if eff == "last_ditch_catch":
-            # Search deck for a Supporter, add to hand
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, TrainerCard) and dc.card_type == CardType.SUPPORTER:
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    break
+            # Player chooses which Supporter to grab from deck
+            opts = [i for i, dc in enumerate(me.deck)
+                    if isinstance(dc, TrainerCard) and dc.card_type == CardType.SUPPORTER]
+            if opts:
+                me.pending_choice = {"type": "last_ditch_catch_pick",
+                                     "options": opts[:12], "context": {}}
 
     def _trigger_on_evolve_ability(self, gs: GameState,
                                     pokemon: PokemonCard,
@@ -1228,20 +1396,17 @@ class GameEngine:
         eff = pokemon.ability_effect
         if not eff or pokemon.ability_type != "on_evolve":
             return
+        me  = gs.players[owner_idx]
         opp = gs.players[1 - owner_idx]
 
         if eff == "heave_ho_catcher":
-            # Switch in 1 of opp's Benched Pokémon to Active Spot (auto: lowest HP bench)
             if opp.bench:
-                target_idx = min(range(len(opp.bench)),
-                                 key=lambda i: opp.bench[i].current_hp)
-                if opp.active:
-                    opp.active.is_active = False
-                    opp.bench.append(opp.active)
-                    opp.active = None
-                new_active = opp.bench.pop(target_idx)
-                new_active.is_active = True
-                opp.active = new_active
+                opts = list(range(len(opp.bench)))
+                me.pending_choice = {
+                    "type": "heave_ho_target",
+                    "options": opts[:12],
+                    "context": {},
+                }
 
     def _use_item(self, gs: GameState, hand_idx: int) -> None:
         me  = gs.current()
@@ -1261,100 +1426,71 @@ class GameEngine:
             me.active.current_hp = min(me.active.hp, me.active.current_hp + 30)
 
         elif eff == "ultra_ball":
-            # Discard 2 non-Pokemon cards, search for any Pokemon
-            discarded = 0
-            i = 0
-            while discarded < 2 and i < len(me.hand):
-                if not isinstance(me.hand[i], PokemonCard):
-                    me.discard.append(me.hand.pop(i))
-                    discarded += 1
-                else:
-                    i += 1
-            # Find any Pokemon in deck
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, PokemonCard):
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    break
+            # Step 1: pick first card to discard (any card type)
+            opts = list(range(len(me.hand)))
+            me.pending_choice = {"type": "ultra_ball_discard1",
+                                 "options": opts[:12], "context": {}}
 
         elif eff == "poke_pad":
-            # Search for non-Rule-Box (non-ex) Pokemon
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, PokemonCard) and not dc.is_ex:
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    break
+            # Player chooses which non-ex Pokémon to search from deck
+            opts = [i for i, dc in enumerate(me.deck)
+                    if isinstance(dc, PokemonCard) and not dc.is_ex]
+            if opts:
+                me.pending_choice = {"type": "poke_pad_pick",
+                                     "options": opts[:12], "context": {}}
 
         elif eff == "pokegear":
-            # Look at top 7, take a Supporter
-            top7 = me.deck[:7]
-            rest = me.deck[7:]
-            for idx, dc in enumerate(top7):
-                if isinstance(dc, TrainerCard) and dc.card_type == CardType.SUPPORTER:
-                    me.hand.append(top7.pop(idx))
-                    break
-            combined = top7 + rest
-            self._shuffle(combined)
-            me.deck = combined
-
-        elif eff == "buddy_buddy_poffin":
-            # Search for up to 2 Basic Pokémon with ≤70 HP
-            found = 0
-            i = 0
-            while found < 2 and i < len(me.deck):
-                dc = me.deck[i]
-                if (isinstance(dc, PokemonCard) and dc.stage == Stage.BASIC
-                        and dc.hp <= 70 and len(me.bench) < MAX_BENCH):
-                    bench_card = me.deck.pop(i)
-                    bench_card.turn_played = gs.turn_number
-                    me.bench.append(bench_card)
-                    self._trigger_bench_entry_ability(gs, bench_card, gs.current_player)
-                    found += 1
-                else:
-                    i += 1
-            if found > 0:
+            # Player picks which Supporter from top 7
+            opts = [i for i, dc in enumerate(me.deck[:7])
+                    if isinstance(dc, TrainerCard) and dc.card_type == CardType.SUPPORTER]
+            if opts:
+                me.pending_choice = {"type": "pokegear_pick",
+                                     "options": opts[:12], "context": {}}
+            else:
                 self._shuffle(me.deck)
 
+        elif eff == "buddy_buddy_poffin":
+            opts = [i for i, c in enumerate(me.deck)
+                    if isinstance(c, PokemonCard) and c.stage == Stage.BASIC
+                    and c.hp <= 70]
+            if opts and len(me.bench) < MAX_BENCH:
+                me.pending_choice = {"type": "poffin_pick1",
+                                     "options": opts[:12], "context": {}}
+
         elif eff == "night_stretcher":
-            # Put a Pokémon OR a Basic Energy card from discard into hand
-            for i, dc in enumerate(me.discard):
-                if isinstance(dc, PokemonCard):
-                    recovered = me.discard.pop(i)
-                    recovered.current_hp = recovered.hp
-                    recovered.energy = {}
-                    recovered.status = None
-                    recovered.tool_card = None
-                    me.hand.append(recovered)
-                    return
-            for i, dc in enumerate(me.discard):
-                if isinstance(dc, EnergyCard) and dc.special_effect is None:
-                    me.hand.append(me.discard.pop(i))
-                    return
+            opts = []
+            for i, c in enumerate(me.discard):
+                if isinstance(c, PokemonCard):
+                    opts.append(i)
+                elif isinstance(c, EnergyCard) and c.special_effect is None:
+                    opts.append(i)
+            if opts:
+                me.pending_choice = {"type": "night_stretcher_pick",
+                                     "options": opts[:12], "context": {}}
 
         elif eff == "fighting_gong":
-            # Search for 1 Basic Fighting Energy OR Basic Fighting Pokémon
+            # Player picks 1 Basic Fighting Energy OR Basic Fighting Pokémon from deck
+            opts = []
             for i, dc in enumerate(me.deck):
-                if isinstance(dc, EnergyCard) and dc.energy_type == EnergyType.FIGHTING \
-                        and dc.special_effect is None:
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    return
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, PokemonCard) and dc.stage == Stage.BASIC \
-                        and dc.pokemon_type == EnergyType.FIGHTING:
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    return
+                if (isinstance(dc, EnergyCard) and dc.energy_type == EnergyType.FIGHTING
+                        and dc.special_effect is None):
+                    opts.append(i)
+                elif (isinstance(dc, PokemonCard) and dc.stage == Stage.BASIC
+                      and dc.pokemon_type == EnergyType.FIGHTING):
+                    opts.append(i)
+            if opts:
+                me.pending_choice = {"type": "fighting_gong_pick",
+                                     "options": opts[:12], "context": {}}
 
         elif eff == "premium_power_pro":
             # During this turn, Fighting Pokémon attacks do +30 damage
             me.premium_power_active = True
 
         elif eff == "switch_item":
-            # Swap active with best bench Pokémon (highest HP)
             if me.bench:
-                best = max(range(len(me.bench)), key=lambda i: me.bench[i].current_hp)
-                self._do_retreat(gs, best, pay_cost=False)
+                opts = list(range(len(me.bench)))
+                me.pending_choice = {"type": "switch_target",
+                                     "options": opts[:12], "context": {}}
 
         elif eff == "unfair_stamp":
             # Both shuffle; I draw 5, opp draws 2
@@ -1403,34 +1539,20 @@ class GameEngine:
             self._draw_n(gs, gs.current_player, n_draw)
 
         elif eff == "hilda":
-            # Search deck for 1 Evolution Pokémon and 1 Energy card, put both in hand
-            found_evo = False
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, PokemonCard) and dc.stage != Stage.BASIC:
-                    me.hand.append(me.deck.pop(i))
-                    found_evo = True
-                    break
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, EnergyCard):
-                    me.hand.append(me.deck.pop(i))
-                    break
-            if found_evo:
+            # Step 1: player chooses which Evolution to take from deck
+            opts = [i for i, dc in enumerate(me.deck)
+                    if isinstance(dc, PokemonCard) and dc.stage != Stage.BASIC]
+            if opts:
+                me.pending_choice = {"type": "hilda_evo_pick",
+                                     "options": opts[:12], "context": {}}
+            else:
                 self._shuffle(me.deck)
 
         elif eff == "boss_orders":
-            # Switch opp's bench to active: auto-target lowest HP bench
             if opp.bench:
-                target_idx = min(range(len(opp.bench)),
-                                 key=lambda i: opp.bench[i].current_hp)
-                # Force opp active to bench (no energy cost)
-                if opp.active:
-                    opp.active.is_active = False
-                    opp.bench.append(opp.active)
-                    opp.active = None
-                # Promote chosen bench
-                new_active = opp.bench.pop(target_idx)
-                new_active.is_active = True
-                opp.active = new_active
+                opts = list(range(len(opp.bench)))
+                me.pending_choice = {"type": "boss_orders_pick",
+                                     "options": opts[:12], "context": {}}
 
         elif eff == "judge":
             # Each player shuffles hand and draws 4
@@ -1449,19 +1571,30 @@ class GameEngine:
             # Heal all damage from active Mega ex, put energy to hand
             if me.active and me.active.is_mega_ex:
                 me.active.current_hp = me.active.hp
-                # Return all attached energy to hand
+                # Return special energies with correct identity
+                colorless_accounted = 0
+                if me.active.has_legacy_energy:
+                    me.hand.append(EnergyCard("Legacy Energy", EnergyType.COLORLESS,
+                                              special_effect="legacy_energy"))
+                    colorless_accounted += 1
                 for etype, cnt in list(me.active.energy.items()):
-                    for _ in range(cnt):
+                    n = cnt
+                    if etype == EnergyType.COLORLESS:
+                        n = max(0, cnt - colorless_accounted)
+                    for _ in range(n):
                         me.hand.append(EnergyCard(f"{etype.name} Energy", etype))
                 me.active.energy.clear()
+                me.active.has_legacy_energy = False
+                me.active.ignition_bonus = 0
 
         elif eff == "team_rockets_petrel":
-            # Search your deck for a Trainer card, put it into your hand
-            for i, dc in enumerate(me.deck):
-                if isinstance(dc, TrainerCard):
-                    me.hand.append(me.deck.pop(i))
-                    self._shuffle(me.deck)
-                    break
+            # Player picks any Trainer card from deck
+            opts = [i for i, dc in enumerate(me.deck) if isinstance(dc, TrainerCard)]
+            if opts:
+                me.pending_choice = {"type": "petrel_pick",
+                                     "options": opts[:12], "context": {}}
+            else:
+                self._shuffle(me.deck)
 
         elif eff == "black_belt_training":
             me.black_belt_active = True
@@ -1473,7 +1606,7 @@ class GameEngine:
                 continue
             if not p.bench:
                 p.pending_promotion = False
-                return
+                continue
             chosen = bench_slot if 0 <= bench_slot < len(p.bench) else (
                 max(range(len(p.bench)), key=lambda i: p.bench[i].current_hp)
             )
@@ -1481,7 +1614,6 @@ class GameEngine:
             promoted.is_active = True
             p.active = promoted
             p.pending_promotion = False
-            return
 
     def _retreat(self, gs: GameState, bench_slot: int) -> None:
         self._do_retreat(gs, bench_slot, pay_cost=True)
@@ -1496,7 +1628,8 @@ class GameEngine:
             self._discard_energy_for_cost(me.active, eff_cost, me)
         active = me.active
         active.is_active = False
-        active.status = None   # retreating clears status
+        active.status = None        # retreating clears status
+        active.shadow_bound = False  # shadow bind releases on retreat
         new_active = me.bench.pop(bench_slot)
         new_active.is_active = True
         me.bench.append(active)
@@ -1550,10 +1683,6 @@ class GameEngine:
                 and gs.active_stadium.effect == "gravity_mountain"):
             evo_card.current_hp = max(1, evo_card.current_hp - 30)
 
-        # Mega Evolution ends the turn
-        if evo_card.is_mega_ex:
-            gs.mega_evolved_this_turn = True
-
         # on_evolve abilities trigger after evolution
         self._trigger_on_evolve_ability(gs, evo_card, gs.current_player)
 
@@ -1587,36 +1716,17 @@ class GameEngine:
         pokemon.ability_used = True
 
         if eff in ("cursed_blast_5", "cursed_blast_13"):
-            # Put 5 or 13 damage counters on 1 opp Pokémon, then this Pokémon is KO'd
-            dmg = 50 if eff == "cursed_blast_5" else 130
-            # Target: prefer opp active (try to finish it off), else lowest HP bench
-            target_poke = opp.active
-            target_is_active = True
-            target_bench_idx = -1
-            # Check if we can KO the opp active with this damage
-            if opp.active and opp.active.current_hp > dmg and opp.bench:
-                # Target bench if active won't be KO'd
-                best_bench = min(range(len(opp.bench)),
-                                 key=lambda i: opp.bench[i].current_hp)
-                if opp.bench[best_bench].current_hp <= dmg:
-                    target_poke = opp.bench[best_bench]
-                    target_is_active = False
-                    target_bench_idx = best_bench
-            if target_poke is not None:
-                target_poke.current_hp -= dmg
-                if target_poke.current_hp <= 0:
-                    self._handle_ko(gs, gs.opponent(),
-                                    is_active=target_is_active,
-                                    bench_idx=target_bench_idx)
-                    if gs.game_over:
-                        return
-            # Now KO this Pokémon (self-KO; opponent gains KO points)
-            pokemon.current_hp = 0
-            if pokemon is me.active:
-                self._handle_ko(gs, gs.current_player, is_active=True)
-            else:
-                bi = me.bench.index(pokemon)
-                self._handle_ko(gs, gs.current_player, is_active=False, bench_idx=bi)
+            # Build target options: 0=opp active, 1+bi=opp bench[bi]
+            opts = []
+            if opp.active:
+                opts.append(0)
+            for bi in range(len(opp.bench)):
+                opts.append(bi + 1)
+            me.pending_choice = {
+                "type": "cursed_blast_target",
+                "options": opts[:12],
+                "context": {"eff": eff, "ability_slot": slot},
+            }
 
         elif eff == "adrena_brain":
             # Move up to 3 damage counters from my Pokémon to opp's Pokémon
@@ -1664,13 +1774,330 @@ class GameEngine:
                     if poke.stage == Stage.STAGE2:
                         poke.current_hp = max(1, poke.current_hp - 30)
 
+    def _handle_choice(self, gs: GameState, opt_idx: int) -> float:
+        """Resolve one step of a pending_choice. Returns reward (KO bonuses)."""
+        me  = gs.current()
+        opp = gs.opp()
+        pc  = me.pending_choice
+        if pc is None:
+            return 0.0
+        opts   = pc.get("options", [])
+        if opt_idx >= len(opts):
+            me.pending_choice = None
+            return 0.0
+        chosen = opts[opt_idx]
+        ptype  = pc["type"]
+        ctx    = pc.get("context", {})
+        reward = 0.0
+
+        # ── Ultra Ball step 1: discard first card (any type) ────────────────
+        if ptype == "ultra_ball_discard1":
+            if chosen < len(me.hand):
+                me.discard.append(me.hand.pop(chosen))
+            new_opts = list(range(len(me.hand)))
+            me.pending_choice = {"type": "ultra_ball_discard2",
+                                 "options": new_opts[:12], "context": ctx}
+
+        # ── Ultra Ball step 2: discard second card (any type) ───────────────
+        elif ptype == "ultra_ball_discard2":
+            if chosen < len(me.hand):
+                me.discard.append(me.hand.pop(chosen))
+            new_opts = [i for i, c in enumerate(me.deck) if isinstance(c, PokemonCard)]
+            if new_opts:
+                me.pending_choice = {"type": "ultra_ball_pick",
+                                     "options": new_opts[:12], "context": ctx}
+            else:
+                me.pending_choice = None
+
+        # ── Ultra Ball step 3: pick Pokemon from deck ────────────────────────
+        elif ptype == "ultra_ball_pick":
+            if chosen < len(me.deck) and isinstance(me.deck[chosen], PokemonCard):
+                me.hand.append(me.deck.pop(chosen))
+                self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Buddy-Buddy Poffin step 1: bench first basic ─────────────────────
+        elif ptype == "poffin_pick1":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], PokemonCard)
+                    and me.deck[chosen].stage == Stage.BASIC
+                    and me.deck[chosen].hp <= 70
+                    and len(me.bench) < MAX_BENCH):
+                bench_card = me.deck.pop(chosen)
+                bench_card.turn_played = gs.turn_number
+                me.bench.append(bench_card)
+                if (gs.active_stadium and gs.active_stadium.effect == "risky_ruins"
+                        and bench_card.pokemon_type != EnergyType.DARKNESS):
+                    bench_card.current_hp = max(1, bench_card.current_hp - 20)
+                self._trigger_bench_entry_ability(gs, bench_card, gs.current_player)
+                self._shuffle(me.deck)
+                if len(me.bench) < MAX_BENCH:
+                    new_opts = [i for i, c in enumerate(me.deck)
+                                if isinstance(c, PokemonCard)
+                                and c.stage == Stage.BASIC and c.hp <= 70]
+                    if new_opts:
+                        me.pending_choice = {"type": "poffin_pick2",
+                                             "options": new_opts[:12], "context": ctx}
+                        return reward
+            me.pending_choice = None
+
+        # ── Buddy-Buddy Poffin step 2: bench second basic ────────────────────
+        elif ptype == "poffin_pick2":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], PokemonCard)
+                    and me.deck[chosen].stage == Stage.BASIC
+                    and me.deck[chosen].hp <= 70
+                    and len(me.bench) < MAX_BENCH):
+                bench_card = me.deck.pop(chosen)
+                bench_card.turn_played = gs.turn_number
+                me.bench.append(bench_card)
+                if (gs.active_stadium and gs.active_stadium.effect == "risky_ruins"
+                        and bench_card.pokemon_type != EnergyType.DARKNESS):
+                    bench_card.current_hp = max(1, bench_card.current_hp - 20)
+                self._trigger_bench_entry_ability(gs, bench_card, gs.current_player)
+                self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Night Stretcher: recover card from discard ───────────────────────
+        elif ptype == "night_stretcher_pick":
+            if chosen < len(me.discard):
+                recovered = me.discard.pop(chosen)
+                if isinstance(recovered, PokemonCard):
+                    recovered.current_hp = recovered.hp
+                    recovered.energy     = {}
+                    recovered.status     = None
+                    recovered.tool_card  = None
+                me.hand.append(recovered)
+            me.pending_choice = None
+
+        # ── Boss's Orders: drag opp bench to active ──────────────────────────
+        elif ptype == "boss_orders_pick":
+            if chosen < len(opp.bench):
+                if opp.active:
+                    opp.active.is_active = False
+                    opp.bench.append(opp.active)
+                    opp.active = None
+                new_active = opp.bench.pop(chosen)
+                new_active.is_active = True
+                opp.active = new_active
+            me.pending_choice = None
+
+        # ── Switch item: bring bench pokemon to active (free retreat) ────────
+        elif ptype == "switch_target":
+            if chosen < len(me.bench):
+                self._do_retreat(gs, chosen, pay_cost=False)
+            me.pending_choice = None
+
+        # ── Poké Pad: fetch chosen non-ex Pokémon from deck ──────────────────
+        elif ptype == "poke_pad_pick":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], PokemonCard)
+                    and not me.deck[chosen].is_ex):
+                me.hand.append(me.deck.pop(chosen))
+                self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Hilda step 1: pick Evolution from deck ────────────────────────────
+        elif ptype == "hilda_evo_pick":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], PokemonCard)
+                    and me.deck[chosen].stage != Stage.BASIC):
+                me.hand.append(me.deck.pop(chosen))
+            new_opts = [i for i, c in enumerate(me.deck) if isinstance(c, EnergyCard)]
+            if new_opts:
+                me.pending_choice = {"type": "hilda_energy_pick",
+                                     "options": new_opts[:12], "context": ctx}
+            else:
+                self._shuffle(me.deck)
+                me.pending_choice = None
+
+        # ── Hilda step 2: pick Energy from deck ───────────────────────────────
+        elif ptype == "hilda_energy_pick":
+            if chosen < len(me.deck) and isinstance(me.deck[chosen], EnergyCard):
+                me.hand.append(me.deck.pop(chosen))
+            self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Last-Ditch Catch: choose which Supporter to grab ─────────────────
+        elif ptype == "last_ditch_catch_pick":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], TrainerCard)
+                    and me.deck[chosen].card_type == CardType.SUPPORTER):
+                me.hand.append(me.deck.pop(chosen))
+                self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Cursed Blast: deal damage then self-KO ───────────────────────────
+        elif ptype == "cursed_blast_target":
+            eff          = ctx.get("eff", "cursed_blast_5")
+            dmg          = 50 if eff == "cursed_blast_5" else 130
+            ability_slot = ctx.get("ability_slot", 0)
+
+            # Find the pokemon using the ability
+            if ability_slot == 0:
+                pokemon         = me.active
+                is_self_active  = True
+                self_bench_idx  = -1
+            else:
+                bi              = ability_slot - 1
+                pokemon         = me.bench[bi] if bi < len(me.bench) else None
+                is_self_active  = False
+                self_bench_idx  = bi
+
+            # Determine target
+            target_poke       = None
+            target_is_active  = True
+            target_bench_idx  = -1
+            if chosen == 0:
+                target_poke      = opp.active
+            else:
+                tbi = chosen - 1
+                if tbi < len(opp.bench):
+                    target_poke      = opp.bench[tbi]
+                    target_is_active = False
+                    target_bench_idx = tbi
+
+            if target_poke is not None:
+                target_poke.current_hp -= dmg
+                if target_poke.current_hp <= 0:
+                    reward += 1.0
+                    self._handle_ko(gs, gs.opponent(),
+                                    is_active=target_is_active,
+                                    bench_idx=target_bench_idx)
+                    if gs.game_over:
+                        reward += 10.0 if gs.winner == gs.current_player else -10.0
+
+            # Self-KO the ability user (opponent gains KO points)
+            if not gs.game_over and pokemon is not None:
+                pokemon.current_hp = 0
+                if is_self_active:
+                    self._handle_ko(gs, gs.current_player, is_active=True)
+                else:
+                    self._handle_ko(gs, gs.current_player,
+                                    is_active=False, bench_idx=self_bench_idx)
+                if gs.game_over:
+                    reward += 10.0 if gs.winner == gs.current_player else -10.0
+
+            me.pending_choice = None
+
+        # ── Cruel Arrow: deal 100 to chosen target ───────────────────────────
+        elif ptype == "cruel_arrow_target":
+            target        = None
+            target_active = True
+            bench_idx     = -1
+            if chosen == 0:
+                target = opp.active
+            else:
+                bi = chosen - 1
+                if bi < len(opp.bench):
+                    target        = opp.bench[bi]
+                    target_active = False
+                    bench_idx     = bi
+            if target is not None:
+                target.current_hp -= 100
+                if target.current_hp <= 0:
+                    reward += 1.0
+                    self._handle_ko(gs, gs.opponent(),
+                                    is_active=target_active, bench_idx=bench_idx)
+                    if gs.game_over:
+                        reward += 10.0 if gs.winner == gs.current_player else -10.0
+            me.pending_choice = None
+            if ctx.get("end_turn_after") and not gs.game_over:
+                self._end_turn(gs)
+
+        # ── Aura Jab: assign one Fighting Energy from discard to chosen bench ─
+        elif ptype == "aura_jab_energy":
+            remaining = ctx.get("remaining", 1)
+            if chosen < len(me.bench):
+                for di, dc in enumerate(me.discard):
+                    if (isinstance(dc, EnergyCard)
+                            and dc.energy_type == EnergyType.FIGHTING
+                            and dc.special_effect is None):
+                        me.discard.pop(di)
+                        me.bench[chosen].energy[EnergyType.FIGHTING] = (
+                            me.bench[chosen].energy.get(EnergyType.FIGHTING, 0) + 1
+                        )
+                        break
+            remaining -= 1
+            if remaining > 0 and me.bench:
+                fight_avail = sum(
+                    1 for c in me.discard
+                    if isinstance(c, EnergyCard)
+                    and c.energy_type == EnergyType.FIGHTING
+                    and c.special_effect is None
+                )
+                if fight_avail > 0:
+                    opts = list(range(len(me.bench)))
+                    me.pending_choice = {
+                        "type": "aura_jab_energy",
+                        "options": opts[:12],
+                        "context": {"remaining": remaining, "end_turn_after": True},
+                    }
+                    return reward
+            me.pending_choice = None
+            if ctx.get("end_turn_after") and not gs.game_over:
+                self._end_turn(gs)
+
+        # ── Heave-Ho Catcher: drag chosen opp bench to active ────────────────
+        elif ptype == "heave_ho_target":
+            if chosen < len(opp.bench):
+                if opp.active:
+                    opp.active.is_active = False
+                    opp.bench.append(opp.active)
+                    opp.active = None
+                new_active = opp.bench.pop(chosen)
+                new_active.is_active = True
+                opp.active = new_active
+            me.pending_choice = None
+
+        # ── Pokégear 3.0: take chosen Supporter from top 7 ───────────────────
+        elif ptype == "pokegear_pick":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], TrainerCard)
+                    and me.deck[chosen].card_type == CardType.SUPPORTER):
+                me.hand.append(me.deck.pop(chosen))
+            self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Fighting Gong: take chosen Fighting Energy or Basic from deck ─────
+        elif ptype == "fighting_gong_pick":
+            if chosen < len(me.deck):
+                card = me.deck[chosen]
+                valid = (
+                    (isinstance(card, EnergyCard)
+                     and card.energy_type == EnergyType.FIGHTING
+                     and card.special_effect is None)
+                    or (isinstance(card, PokemonCard)
+                        and card.stage == Stage.BASIC
+                        and card.pokemon_type == EnergyType.FIGHTING)
+                )
+                if valid:
+                    me.hand.append(me.deck.pop(chosen))
+            self._shuffle(me.deck)
+            me.pending_choice = None
+
+        # ── Team Rocket's Petrel: take chosen Trainer from deck ───────────────
+        elif ptype == "petrel_pick":
+            if (chosen < len(me.deck)
+                    and isinstance(me.deck[chosen], TrainerCard)):
+                me.hand.append(me.deck.pop(chosen))
+            self._shuffle(me.deck)
+            me.pending_choice = None
+
+        return reward
+
     def _attack(self, gs: GameState, atk_idx: int) -> float:
         me  = gs.current()
         opp = gs.opp()
         if me.active is None or atk_idx >= len(me.active.attacks):
             return 0.0
         atk = me.active.attacks[atk_idx]
-        if not can_pay_cost(me.active, atk.energy_cost):
+        # Seasoned Skill reduces Blood Moon cost by opponent's KO count
+        if atk.effect == "blood_moon" and me.active.ability_effect == "seasoned_skill":
+            effective_cost = max(0, 5 - opp.ko_count)
+            if me.active.total_energy() < effective_cost:
+                return 0.0
+        elif not can_pay_cost(me.active, atk.energy_cost):
             return 0.0
 
         reward = 0.0
@@ -1682,11 +2109,17 @@ class GameEngine:
         final_damage = base_damage
 
         # ── Attack effects ───────────────────────────────────────────────────
+        pending_shadow_bind  = False  # applied after confirming attack hits
+        pending_wild_press   = False  # self-damage applied after opp damage
         if effect == "bench_50_one":
             # Jetting Blow: 120 to active + 50 to one bench
             final_damage = base_damage
             if opp.bench:
-                bi = int(self.rng.integers(0, len(opp.bench)))
+                choice = gs.ui_choice or {}
+                gs.ui_choice = None
+                bt = choice.get("bench_target")
+                bi = (bt if bt is not None and 0 <= bt < len(opp.bench)
+                      else int(self.rng.integers(0, len(opp.bench))))
                 opp.bench[bi].current_hp -= 50
                 if opp.bench[bi].current_hp <= 0:
                     self._handle_ko(gs, gs.opponent(),
@@ -1705,10 +2138,9 @@ class GameEngine:
                 opp.active.status = "confused"
 
         elif effect == "shadow_bind":
-            # 150 damage; opponent's active can't retreat next turn
+            # 150 damage; opponent's active can't retreat next turn (if attack hits)
             final_damage = base_damage
-            if opp.active:
-                opp.active.shadow_bound = True
+            pending_shadow_bind = True  # applied after confusion check
 
         elif effect == "come_and_get_you":
             # Put up to 3 Duskull from discard onto bench (0 damage)
@@ -1724,34 +2156,25 @@ class GameEngine:
                     dc.tool_card = None
                     dc.turn_played = gs.turn_number
                     me.bench.append(me.discard.pop(i))
+                    # Risky Ruins applies to newly benched non-Darkness Basics
+                    if (gs.active_stadium
+                            and gs.active_stadium.effect == "risky_ruins"
+                            and dc.pokemon_type != EnergyType.DARKNESS):
+                        dc.current_hp = max(1, dc.current_hp - 20)
                     count += 1
                 else:
                     i += 1
             final_damage = 0
 
         elif effect == "cruel_arrow":
-            # 100 damage to 1 of opp's Pokémon (prefer active, else lowest HP bench)
-            # No weakness/resistance for bench targets
-            target_is_active = True
-            target_bench_idx = -1
-            if opp.active and opp.active.current_hp > base_damage and opp.bench:
-                low_idx = min(range(len(opp.bench)),
-                              key=lambda i: opp.bench[i].current_hp)
-                if opp.bench[low_idx].current_hp <= base_damage:
-                    target_is_active = False
-                    target_bench_idx = low_idx
-            if target_is_active:
-                final_damage = base_damage
-                # Damage reduction applies for active target
-            else:
-                opp.bench[target_bench_idx].current_hp -= base_damage
-                if opp.bench[target_bench_idx].current_hp <= 0:
-                    self._handle_ko(gs, gs.opponent(),
-                                    is_active=False, bench_idx=target_bench_idx)
-                    if gs.game_over:
-                        gs.last_attack_damage = base_damage
-                        return reward + 1.0
-                final_damage = 0  # bench target handled, no active damage
+            # 100 damage to any of opp's Pokémon; player chooses target
+            opts = ([0] if opp.active else []) + [bi + 1 for bi in range(len(opp.bench))]
+            me.pending_choice = {
+                "type": "cruel_arrow_target",
+                "options": opts[:12],
+                "context": {"end_turn_after": True},
+            }
+            final_damage = 0  # damage dealt in _handle_choice
 
         elif effect == "eon_blade":
             # 200 damage; this Pokémon can't attack next turn
@@ -1772,24 +2195,19 @@ class GameEngine:
             opp.items_blocked = True
 
         elif effect == "aura_jab":
-            # 130 damage; attach up to 3 Basic Fighting Energy from discard to bench
+            # 130 damage; then player assigns up to 3 Fighting Energy from discard to bench
             final_damage = base_damage
-            count = 0
-            for bp in me.bench:
-                if count >= 3:
-                    break
-                i = 0
-                while count < 3 and i < len(me.discard):
-                    dc = me.discard[i]
-                    if (isinstance(dc, EnergyCard)
-                            and dc.energy_type == EnergyType.FIGHTING
-                            and dc.special_effect is None):
-                        bp.energy[EnergyType.FIGHTING] = \
-                            bp.energy.get(EnergyType.FIGHTING, 0) + 1
-                        me.discard.pop(i)
-                        count += 1
-                    else:
-                        i += 1
+            fight_avail = sum(1 for c in me.discard
+                              if isinstance(c, EnergyCard)
+                              and c.energy_type == EnergyType.FIGHTING
+                              and c.special_effect is None)
+            if fight_avail > 0 and me.bench:
+                opts = list(range(len(me.bench)))
+                me.pending_choice = {
+                    "type": "aura_jab_energy",
+                    "options": opts[:12],
+                    "context": {"remaining": min(3, fight_avail), "end_turn_after": True},
+                }
 
         elif effect == "mega_brave":
             # 270 damage; can't use Mega Brave next turn
@@ -1813,24 +2231,27 @@ class GameEngine:
             damage_reduction = 0  # ignores weakness/resistance (simplified as no reduction)
 
         elif effect == "wild_press":
-            # 210 damage; this Pokémon also does 70 damage to itself
+            # 210 damage to opp; THEN this Pokémon takes 70 damage to itself
             final_damage = base_damage
-            if me.active:
-                me.active.current_hp -= 70
-                if me.active.current_hp <= 0:
-                    self._handle_ko(gs, gs.current_player, is_active=True)
-                    if gs.game_over:
-                        gs.last_attack_damage = 0
-                        return reward
+            pending_wild_press = True  # self-damage applied after opp damage
 
         elif effect == "tuck_tail":
+            final_damage = 0
             # Put self + attached cards back in hand
             if me.active:
                 returned = me.active
                 me.active = None
-                # Return energy to hand
+                # Return energy to hand with correct identity for special energies
+                colorless_accounted = 0
+                if returned.has_legacy_energy:
+                    me.hand.append(EnergyCard("Legacy Energy", EnergyType.COLORLESS,
+                                              special_effect="legacy_energy"))
+                    colorless_accounted += 1
                 for etype, cnt in returned.energy.items():
-                    for _ in range(cnt):
+                    n = cnt
+                    if etype == EnergyType.COLORLESS:
+                        n = max(0, cnt - colorless_accounted)
+                    for _ in range(n):
                         me.hand.append(EnergyCard(f"{etype.name} Energy", etype))
                 # Return tool to hand
                 if returned.tool_card:
@@ -1870,7 +2291,7 @@ class GameEngine:
         # ── Confused self-damage ─────────────────────────────────────────────
         if me.active and me.active.status == "confused":
             if not self._coin_flip():
-                # Tails: deal 30 to self, skip attack
+                # Tails: deal 30 to self, skip attack entirely
                 me.active.current_hp -= 30
                 gs.last_attack_damage = 0
                 gs.last_damage_prevented = False
@@ -1879,22 +2300,18 @@ class GameEngine:
                     self._handle_ko(gs, gs.current_player, is_active=True)
                 return reward
 
+        # ── Shadow Bind applied only after attack is confirmed to hit ────────
+        if pending_shadow_bind and opp.active:
+            opp.active.shadow_bound = True
+
         # ── Apply damage reduction ───────────────────────────────────────────
         damage_before_reduction = final_damage
         final_damage = max(0, final_damage - damage_reduction)
 
-        # ── Sparkling Barrier (Latias ex) ────────────────────────────────────
-        was_protected = False
-        if (opp.active and opp.active.ability_effect == "sparkling_barrier"
-                and me.active and me.active.is_ex and final_damage > 0):
-            final_damage = max(0, final_damage - 30)
-
         gs.last_attack_damage    = final_damage
-        gs.last_damage_prevented = was_protected
+        gs.last_damage_prevented = False
         gs.last_damage_reduced   = (
-            damage_reduction > 0
-            and final_damage < damage_before_reduction
-            and not was_protected
+            damage_reduction > 0 and final_damage < damage_before_reduction
         )
 
         if opp.active and final_damage > 0:
@@ -1905,6 +2322,15 @@ class GameEngine:
             self._handle_ko(gs, gs.opponent(), is_active=True)
             if gs.game_over:
                 reward += 10.0 if gs.winner == gs.current_player else -10.0
+
+        # ── Wild Press: self-damage AFTER dealing damage to opponent ─────────
+        if pending_wild_press and not gs.game_over and me.active is not None:
+            me.active.current_hp -= 70
+            if me.active.current_hp <= 0:
+                self._handle_ko(gs, gs.current_player, is_active=True)
+                if gs.game_over:
+                    reward += 10.0 if gs.winner == gs.current_player else -10.0
+                    return reward
 
         if (not gs.game_over and me.active is not None
                 and me.active.current_hp <= 0):
@@ -1920,23 +2346,28 @@ class GameEngine:
         loser      = gs.players[defeated_player_idx]
         winner     = gs.players[winner_idx]
 
+        def _ko_points(ko_poke: PokemonCard) -> int:
+            """KO points for winner; Legacy Energy overrides to 1 (once per game)."""
+            if ko_poke.has_legacy_energy and not gs.legacy_energy_used:
+                gs.legacy_energy_used = True
+                return 1
+            if ko_poke.is_mega_ex:
+                return 3
+            if ko_poke.is_ex:
+                return 2
+            return 1
+
         if is_active:
             ko_poke = loser.active
-            # ex / mega give extra KO points
             if ko_poke:
-                if ko_poke.is_mega_ex:
-                    winner.ko_count += 3
-                elif ko_poke.is_ex:
-                    winner.ko_count += 2
-                else:
-                    winner.ko_count += 1
-                # Discard tool with the KO'd Pokémon
+                winner.ko_count += _ko_points(ko_poke)
                 if ko_poke.tool_card:
                     loser.discard.append(ko_poke.tool_card)
                     ko_poke.tool_card = None
                 loser.discard.append(ko_poke)
             loser.active = None
-            loser.had_ko_last_turn = True
+            # Track for Unfair Stamp / Flip the Script
+            loser._had_ko_this_opp_turn = True
 
             if not loser.bench:
                 gs.game_over  = True
@@ -1956,12 +2387,9 @@ class GameEngine:
                     loser.discard.append(ko_poke.tool_card)
                     ko_poke.tool_card = None
                 loser.discard.append(ko_poke)
-                if ko_poke.is_mega_ex:
-                    winner.ko_count += 3
-                elif ko_poke.is_ex:
-                    winner.ko_count += 2
-                else:
-                    winner.ko_count += 1
+                winner.ko_count += _ko_points(ko_poke)
+                # Track for Unfair Stamp / Flip the Script (bench KOs count too)
+                loser._had_ko_this_opp_turn = True
 
         if winner.ko_count >= KO_TO_WIN:
             gs.game_over  = True
@@ -1973,9 +2401,25 @@ class GameEngine:
         # Clear paralysis at end of turn
         if me.active and me.active.status == "paralyzed":
             me.active.status = None
+        # Shadow Bind expires at end of the bound Pokémon's turn
+        if me.active:
+            me.active.shadow_bound = False
+        # Itchy Pollen items block expires at end of the blocked player's turn
+        me.items_blocked = False
+        # Ignition Energy boost expires at end of the player's turn
+        for p in me.all_pokemon_in_play():
+            if p.ignition_bonus > 0:
+                cur = p.energy.get(EnergyType.COLORLESS, 0)
+                p.energy[EnergyType.COLORLESS] = max(0, cur - p.ignition_bonus)
+                if p.energy.get(EnergyType.COLORLESS, 0) == 0:
+                    p.energy.pop(EnergyType.COLORLESS, None)
+                p.ignition_bonus = 0
+
         gs.current_player = gs.opponent()
         gs.turn_number += 1
         gs.mega_evolved_this_turn = False
+        if not gs.game_over:
+            self.start_turn(gs)
 
 # ─────────────────────────────────────────────
 # GYM-STYLE ENVIRONMENT
@@ -2035,9 +2479,6 @@ class PokemonTCGEnv:
             self.gs.winner     = -1
             self.gs.win_reason = "timeout"
 
-        if not done and self.gs.current_player != current_player_before:
-            self.engine.start_turn(self.gs)
-
         return StateEncoder.encode(self.gs), reward, done, self._info()
 
     def _info(self) -> Dict:
@@ -2076,6 +2517,173 @@ class HeuristicAgent:
     12. END_TURN
     """
 
+    def _choose_for_pending(self, gs: 'GameState') -> int:
+        """Return best CHOOSE action given current pending_choice."""
+        me  = gs.current()
+        opp = gs.players[1 - gs.current_player]
+        pc  = me.pending_choice
+        if pc is None:
+            return ActionMapper.CHOOSE_START
+        ptype = pc["type"]
+        opts  = pc["options"]
+
+        def best_of(score_fn) -> int:
+            best_i = 0; best_s = float('-inf')
+            for i, v in enumerate(opts):
+                s = score_fn(i, v)
+                if s > best_s:
+                    best_s = s; best_i = i
+            return ActionMapper.CHOOSE_START + best_i
+
+        if ptype in ("ultra_ball_discard1", "ultra_ball_discard2"):
+            # Discard energy first, then items/tools/stadiums, keep supporters last
+            priority = {CardType.ENERGY: 5, CardType.ITEM: 4, CardType.TOOL: 3,
+                        CardType.STADIUM: 3, CardType.SUPPORTER: 1}
+            def score(i, hand_idx):
+                if hand_idx >= len(me.hand): return -1
+                ct = getattr(me.hand[hand_idx], 'card_type', CardType.ENERGY)
+                return priority.get(ct, 2)
+            return best_of(score)
+
+        elif ptype == "ultra_ball_pick":
+            def score(i, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                p = me.deck[deck_idx]
+                if not isinstance(p, PokemonCard): return -1
+                return p.stage * 10 + p.hp / 100.0
+            return best_of(score)
+
+        elif ptype in ("poffin_pick1", "poffin_pick2"):
+            def score(i, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                p = me.deck[deck_idx]
+                if not isinstance(p, PokemonCard): return -1
+                return p.hp / 100.0
+            return best_of(score)
+
+        elif ptype == "night_stretcher_pick":
+            def score(i, discard_idx):
+                if discard_idx >= len(me.discard): return -1
+                c = me.discard[discard_idx]
+                if isinstance(c, PokemonCard):
+                    return c.stage * 10 + c.hp / 100.0
+                return 1.0  # energy
+            return best_of(score)
+
+        elif ptype == "boss_orders_pick":
+            def score(i, bench_idx):
+                if bench_idx >= len(opp.bench): return -1
+                return -opp.bench[bench_idx].current_hp  # pick lowest HP
+            return best_of(score)
+
+        elif ptype == "switch_target":
+            def score(i, bench_idx):
+                if bench_idx >= len(me.bench): return -1
+                return me.bench[bench_idx].current_hp  # pick highest HP
+            return best_of(score)
+
+        elif ptype == "cursed_blast_target":
+            eff = pc.get("context", {}).get("eff", "cursed_blast_5")
+            dmg = 50 if eff == "cursed_blast_5" else 130
+            def score(i, opt_val):
+                p = opp.active if opt_val == 0 else (
+                    opp.bench[opt_val-1] if opt_val-1 < len(opp.bench) else None)
+                if p is None: return -1
+                if p.current_hp <= dmg: return 1000  # can KO it
+                return -p.current_hp  # otherwise pick lowest HP
+            return best_of(score)
+
+        elif ptype in ("poke_pad_pick", "hilda_evo_pick"):
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                p = me.deck[deck_idx]
+                if not isinstance(p, PokemonCard): return -1
+                return p.stage * 10 + p.hp / 100.0
+            return best_of(score)
+
+        elif ptype == "hilda_energy_pick":
+            # Prefer basic typed energy over colorless/special
+            priority_type = {EnergyType.WATER: 2, EnergyType.DARKNESS: 2,
+                             EnergyType.FIGHTING: 2}
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                c = me.deck[deck_idx]
+                if not isinstance(c, EnergyCard): return -1
+                if c.special_effect is not None: return 0  # prefer basic energy
+                return priority_type.get(c.energy_type, 1)
+            return best_of(score)
+
+        elif ptype == "last_ditch_catch_pick":
+            sup_priority = {"boss_orders": 5, "lillies_determination": 4,
+                            "lillies_determination_s": 4, "hilda": 3, "judge": 2}
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                c = me.deck[deck_idx]
+                if not isinstance(c, TrainerCard): return -1
+                return sup_priority.get(c.effect, 1)
+            return best_of(score)
+
+        elif ptype == "cruel_arrow_target":
+            def score(i, opt_val):
+                p = (opp.active if opt_val == 0
+                     else (opp.bench[opt_val-1] if opt_val-1 < len(opp.bench) else None))
+                if p is None: return -1
+                if p.current_hp <= 100: return 1000  # KO
+                return -p.current_hp
+            return best_of(score)
+
+        elif ptype == "aura_jab_energy":
+            def score(i, bench_idx):
+                if bench_idx >= len(me.bench): return -1
+                p = me.bench[bench_idx]
+                if not p.attacks: return p.stage * 5
+                best_deficit = float('inf')
+                for atk in p.attacks:
+                    fight_need = atk.energy_cost.get(EnergyType.FIGHTING, 0)
+                    fight_have = p.energy.get(EnergyType.FIGHTING, 0)
+                    deficit = max(0, fight_need - fight_have)
+                    if deficit < best_deficit:
+                        best_deficit = deficit
+                return -best_deficit + p.stage * 10
+            return best_of(score)
+
+        elif ptype == "heave_ho_target":
+            def score(_, bench_idx):
+                if bench_idx >= len(opp.bench): return -1
+                return -opp.bench[bench_idx].current_hp  # lowest HP
+            return best_of(score)
+
+        elif ptype == "pokegear_pick":
+            sup_priority = {"boss_orders": 5, "lillies_determination": 4,
+                            "lillies_determination_s": 4, "hilda": 3, "judge": 2}
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                c = me.deck[deck_idx]
+                if not isinstance(c, TrainerCard): return -1
+                return sup_priority.get(c.effect, 1)
+            return best_of(score)
+
+        elif ptype == "fighting_gong_pick":
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                c = me.deck[deck_idx]
+                if isinstance(c, EnergyCard): return 10  # prefer energy
+                if isinstance(c, PokemonCard): return c.hp / 100.0
+                return -1
+            return best_of(score)
+
+        elif ptype == "petrel_pick":
+            type_priority = {CardType.SUPPORTER: 3, CardType.ITEM: 2, CardType.STADIUM: 1}
+            def score(_, deck_idx):
+                if deck_idx >= len(me.deck): return -1
+                c = me.deck[deck_idx]
+                if not isinstance(c, TrainerCard): return -1
+                if c.effect == "boss_orders": return 10
+                return type_priority.get(c.card_type, 1)
+            return best_of(score)
+
+        return ActionMapper.CHOOSE_START  # default: first option
+
     def act(self, env: 'PokemonTCGEnv') -> int:
         gs    = env.gs
         me    = gs.current()
@@ -2083,6 +2691,10 @@ class HeuristicAgent:
 
         def actions_of(t: ActionType) -> List[int]:
             return [a for a in legal if ActionMapper.decode(a)[0] == t]
+
+        # 0. PENDING CHOICE (interrupt — must resolve before anything else)
+        if me.pending_choice is not None:
+            return self._choose_for_pending(gs)
 
         # 1. PROMOTE
         promotes = actions_of(ActionType.PROMOTE)
@@ -2131,16 +2743,32 @@ class HeuristicAgent:
             def attach_priority(a: int) -> float:
                 _, p = ActionMapper.decode(a)
                 slot = p["slot"]
-                target = me.active if slot == 0 else (
-                    me.bench[slot-1] if slot-1 < len(me.bench) else None)
-                if target is None:
+                hi   = p["hand_idx"]
+                target = (me.active if slot == MAX_BENCH else
+                          (me.bench[slot] if slot < len(me.bench) else None))
+                if target is None or hi >= len(me.hand):
                     return -1.0
-                base = 10.0 if slot == 0 else float(target.stage)
+                e_card = me.hand[hi]
+                if not isinstance(e_card, EnergyCard):
+                    return -1.0
+                base = 10.0 if slot == MAX_BENCH else float(target.stage)
                 min_cost = min(
                     (sum(atk.energy_cost.values()) for atk in target.attacks),
                     default=99)
                 gap = max(0, min_cost - target.total_energy())
-                return base - gap * 0.1
+                # Darkness energy to a Pokémon with Adrena-Brain ability
+                if (e_card.energy_type == EnergyType.DARKNESS
+                        and target.ability_effect == "adrena_brain"):
+                    return base + 5.0
+                # Typed energy that matches at least one attack requirement
+                type_match = any(
+                    e_card.energy_type == etype and amt > 0
+                    for atk in target.attacks
+                    for etype, amt in atk.energy_cost.items()
+                    if etype != EnergyType.COLORLESS
+                )
+                type_bonus = 2.0 if type_match else 0.0
+                return base - gap * 0.1 + type_bonus
             return max(attaches, key=attach_priority)
 
         # 6. ATTACH_TOOL — prefer Mega ex targets
@@ -2326,17 +2954,20 @@ def run_unit_tests():
     rockruff = PokemonCard("Riolu", 60, Stage.BASIC, None, [])
     rockruff.turn_played = 0
     lycanroc = PokemonCard("Mega Lucario ex", 310, Stage.STAGE1, "Riolu", [])
-    gs7_turn = 2
-    assert can_evolve(lycanroc, rockruff, gs7_turn)
-    rockruff.turn_played = 2
-    assert not can_evolve(lycanroc, rockruff, gs7_turn), \
-        "Cannot evolve card played this turn"
+    # Initial Pokemon (turn_played=0) cannot evolve on turns 1 or 2
+    assert not can_evolve(lycanroc, rockruff, 1), "Initial Pokemon cannot evolve on turn 1"
+    assert not can_evolve(lycanroc, rockruff, 2), "Initial Pokemon cannot evolve on turn 2"
+    # Initial Pokemon CAN evolve from turn 3 onward
+    assert can_evolve(lycanroc, rockruff, 3), "Initial Pokemon should evolve on turn 3+"
+    # Pokemon played this turn cannot evolve
+    rockruff.turn_played = 3
+    assert not can_evolve(lycanroc, rockruff, 3), "Cannot evolve card played this turn"
     print("✓ Evolution timing correct")
 
     # ── Test 8: ActionMapper round-trip ───────────────────────────
     test_cases = [
         (ActionType.END_TURN,      {}),
-        (ActionType.ATTACH_ENERGY, {"slot": 3}),
+        (ActionType.ATTACH_ENERGY, {"hand_idx": 2, "slot": 3}),
         (ActionType.PLAY_POKEMON,  {"hand_idx": 5}),
         (ActionType.USE_ITEM,      {"hand_idx": 2}),
         (ActionType.USE_SUPPORTER, {"hand_idx": 7}),

@@ -1,9 +1,9 @@
 """
-RL Agents for Pokemon TCG v4 Environment
-─────────────────────────────────────────
+RL Agents for Pokemon TCG Environment
+─────────────────────────────────────
 Two agents trained via self-play:
-  • Agent 0 (Lucario deck)  — trained with PPO
-  • Agent 1 (Starmie deck)  — trained with DQN
+  • Agent 0 (Lycanroc deck)  — trained with PPO
+  • Agent 1 (Alolan Raichu deck) — trained with DQN
 
 Both use NumPy neural networks (no PyTorch/TF dependency).
 Self-play: each agent plays as its fixed deck, alternating sides.
@@ -18,15 +18,16 @@ import sys
 from collections import deque
 from typing import List, Tuple, Dict, Optional
 
+# ── import environment ─────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ptcg_env import (
     PokemonTCGEnv, StateEncoder, ActionMapper,
     ActionType, HeuristicAgent, RandomAgent,
-    build_lucario_deck, build_starmie_deck,
+    build_lycanroc_deck, build_raichu_deck,
 )
 
-OBS_SIZE = StateEncoder.STATE_SIZE      # 234
-ACT_SIZE = ActionMapper.TOTAL_ACTIONS   # 295
+OBS_SIZE = StateEncoder.STATE_SIZE      # 84
+ACT_SIZE = ActionMapper.TOTAL_ACTIONS   # 104
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NUMPY NEURAL NETWORK PRIMITIVES
@@ -53,6 +54,7 @@ class LinearLayer:
         scale = np.sqrt(2.0 / in_dim)
         self.W = rng.standard_normal((in_dim, out_dim)).astype(np.float32) * scale
         self.b = np.zeros(out_dim, dtype=np.float32)
+        # Adam state
         self.mW = np.zeros_like(self.W)
         self.vW = np.zeros_like(self.W)
         self.mb = np.zeros_like(self.b)
@@ -91,7 +93,10 @@ class LinearLayer:
 
 
 class MLP:
-    """Multi-layer perceptron: [in → hidden → hidden → out] with ReLU."""
+    """
+    Multi-layer perceptron.
+    Architecture: [in → hidden → hidden → out] with ReLU activations.
+    """
 
     def __init__(self, in_dim: int, hidden: int, out_dim: int,
                  rng: np.random.Generator):
@@ -110,7 +115,7 @@ class MLP:
             if i < len(self.layers) - 1:
                 self._pre_acts.append(h.copy())
                 h = relu(h)
-        return h
+        return h   # raw logits / values from last layer
 
     def backward(self, dout: np.ndarray) -> np.ndarray:
         d = dout.astype(np.float32)
@@ -141,17 +146,23 @@ class MLP:
 
 class ActorCritic:
     """
-    Shared 2-layer trunk → actor head (policy logits) + critic head (value).
+    Shared 2-layer trunk → separate actor head (policy logits) + critic head (value).
+    trunk: obs → hidden → hidden (ReLU activations)
+    actor: hidden → act_size
+    critic: hidden → 1
     """
 
     def __init__(self, obs_size: int, act_size: int, hidden: int,
                  rng: np.random.Generator):
-        self.t0     = LinearLayer(obs_size, hidden, rng)
-        self.t1     = LinearLayer(hidden,   hidden, rng)
+        # Trunk: 2 linear layers
+        self.t0 = LinearLayer(obs_size, hidden, rng)
+        self.t1 = LinearLayer(hidden,   hidden, rng)
+        # Heads
         self.actor  = LinearLayer(hidden, act_size, rng)
         self.critic = LinearLayer(hidden, 1, rng)
 
     def forward(self, obs: np.ndarray) -> Tuple[np.ndarray, float]:
+        """Single-sample forward. Returns (logits [A], value scalar)."""
         h0   = relu(self.t0.forward(obs))
         feat = relu(self.t1.forward(h0))
         logits = self.actor.forward(feat)
@@ -185,27 +196,34 @@ class ActorCritic:
                              actions: np.ndarray, masks: np.ndarray,
                              lr: float, clip_eps: float = 0.2,
                              vf_coef: float = 0.5, ent_coef: float = 0.01):
+        """
+        Vectorised PPO mini-batch update.
+        obs [B,S], advantages [B], returns [B], old_log_probs [B],
+        actions [B], masks [B,A]
+        """
         B = obs.shape[0]
         if B == 0:
             return {"pg_loss": 0.0, "vf_loss": 0.0, "entropy": 0.0}
 
         obs = obs.astype(np.float32)
 
-        pre0 = obs @ self.t0.W + self.t0.b
+        # ── Forward ─────────────────────────────────────────────────────
+        pre0 = obs @ self.t0.W + self.t0.b                                 # [B, H]
         h0   = relu(pre0)
-        pre1 = h0  @ self.t1.W + self.t1.b
+        pre1 = h0  @ self.t1.W + self.t1.b                                 # [B, H]
         feat = relu(pre1)
 
-        logits  = feat @ self.actor.W  + self.actor.b
-        values  = (feat @ self.critic.W + self.critic.b).squeeze(-1)
+        logits  = feat @ self.actor.W  + self.actor.b                      # [B, A]
+        values  = (feat @ self.critic.W + self.critic.b).squeeze(-1)       # [B]
 
+        # Masked softmax
         logits_m = logits + (masks.astype(np.float32) - 1.0) * 1e9
         logits_m -= logits_m.max(axis=1, keepdims=True)
         exp_l = np.exp(logits_m)
-        probs = exp_l / (exp_l.sum(axis=1, keepdims=True) + 1e-10)
+        probs = exp_l / (exp_l.sum(axis=1, keepdims=True) + 1e-10)        # [B, A]
 
-        log_pas = np.log(probs[np.arange(B), actions] + 1e-8)
-        ratios  = np.exp(log_pas - old_log_probs.astype(np.float32))
+        log_pas = np.log(probs[np.arange(B), actions] + 1e-8)             # [B]
+        ratios  = np.exp(log_pas - old_log_probs.astype(np.float32))      # [B]
 
         pg1     = ratios * advantages
         pg2     = np.clip(ratios, 1-clip_eps, 1+clip_eps) * advantages
@@ -213,37 +231,55 @@ class ActorCritic:
         vf_loss = float(0.5 * np.mean((values - returns) ** 2))
         entropy = float(-np.mean(np.sum(probs * np.log(probs + 1e-8), axis=1)))
 
-        d_val    = (vf_coef * (values - returns)).astype(np.float32)
-        dW_crit  = (feat.T @ d_val[:, None] / B).astype(np.float32)
-        db_crit  = np.array([d_val.sum() / B], dtype=np.float32)
-        d_feat_c = (d_val[:, None] / B * self.critic.W.T).astype(np.float32)
+        # ── Backward ────────────────────────────────────────────────────
 
+        # Critic
+        d_val    = (vf_coef * (values - returns) / B).astype(np.float32)  # [B]
+        dW_crit  = (feat.T @ d_val[:, None]).astype(np.float32)            # [H, 1]
+        db_crit  = d_val.sum(keepdims=True).reshape(1,).astype(np.float32) # [1]
+        d_feat_c = (d_val[:, None] * self.critic.W.T).astype(np.float32)   # [B, H]
+
+        # Actor: PPO-clip gradient
+        # Standard PPO: L = -E[min(r*A, clip(r,1-ε,1+ε)*A)]
+        # Gradient flows iff the unclipped term r*A is the one selected by min()
+        # AND the gradient direction would push r outside the clip range.
+        # Equivalently: stop gradient when (A>0 AND r>1+ε) OR (A<0 AND r<1-ε).
+        #
+        # Why: when clipped term wins, clip(r) is a constant w.r.t. policy params,
+        # so its gradient is zero — but only when ratio is firmly outside the
+        # clip region. Inside the clip region, both branches give the same value
+        # so we use the unclipped gradient.
         clipped_high   = (advantages > 0) & (ratios > 1.0 + clip_eps)
         clipped_low    = (advantages < 0) & (ratios < 1.0 - clip_eps)
-        gradient_flows = ~(clipped_high | clipped_low)
-        coeff    = advantages * ratios * gradient_flows / B
-        d_log_pa = -coeff
+        gradient_flows = ~(clipped_high | clipped_low)                     # [B]
+        coeff    = advantages * ratios * gradient_flows / B                # [B]
+        d_log_pa = -coeff                                                  # [B]
 
-        d_p          = np.zeros_like(probs)
+        # Gradient through softmax
+        d_p          = np.zeros_like(probs)                                # [B, A]
         p_chosen     = probs[np.arange(B), actions]
         d_p[np.arange(B), actions] = d_log_pa / (p_chosen + 1e-8)
-        d_ent        = -ent_coef * (np.log(probs + 1e-8) + 1.0) / B
+        # Entropy: -ent_coef * (log(p)+1)
+        d_ent        = -ent_coef * (np.log(probs + 1e-8) + 1.0) / B      # [B, A]
         d_p         += d_ent
-        dot          = (d_p * probs).sum(axis=1, keepdims=True)
-        d_logits_in  = probs * (d_p - dot)
+        # Jacobian of softmax: dp_j/d_logit_i = p_i*(delta_ij - p_j)
+        dot          = (d_p * probs).sum(axis=1, keepdims=True)           # [B, 1]
+        d_logits_in  = probs * (d_p - dot)                                # [B, A]
 
-        dW_act   = (feat.T @ d_logits_in).astype(np.float32)
-        db_act   = d_logits_in.sum(axis=0).astype(np.float32)
-        d_feat_a = (d_logits_in @ self.actor.W.T).astype(np.float32)
+        dW_act   = (feat.T @ d_logits_in).astype(np.float32)              # [H, A]
+        db_act   = d_logits_in.sum(axis=0).astype(np.float32)             # [A]
+        d_feat_a = (d_logits_in @ self.actor.W.T).astype(np.float32)      # [B, H]
 
-        d_feat   = (d_feat_a + d_feat_c).astype(np.float32)
-        d_pre1   = d_feat * relu_grad(pre1)
-        dW_t1    = (h0.T @ d_pre1).astype(np.float32)
-        db_t1    = d_pre1.sum(axis=0).astype(np.float32)
-        d_h0     = (d_pre1 @ self.t1.W.T) * relu_grad(pre0)
-        dW_t0    = (obs.T @ d_h0).astype(np.float32)
-        db_t0    = d_h0.sum(axis=0).astype(np.float32)
+        # Trunk backward
+        d_feat   = (d_feat_a + d_feat_c).astype(np.float32)               # [B, H]
+        d_pre1   = d_feat * relu_grad(pre1)                                # [B, H]
+        dW_t1    = (h0.T @ d_pre1).astype(np.float32)                     # [H, H]
+        db_t1    = d_pre1.sum(axis=0).astype(np.float32)                  # [H]
+        d_h0     = (d_pre1 @ self.t1.W.T) * relu_grad(pre0)               # [B, H]
+        dW_t0    = (obs.T @ d_h0).astype(np.float32)                      # [S, H]
+        db_t0    = d_h0.sum(axis=0).astype(np.float32)                    # [H]
 
+        # Apply gradients via Adam
         self.critic.dW = dW_crit; self.critic.db = db_crit
         self.actor.dW  = dW_act;  self.actor.db  = db_act
         self.t1.dW = dW_t1; self.t1.db = db_t1
@@ -276,16 +312,19 @@ class QNetwork:
 
     def update(self, obs: np.ndarray, actions: np.ndarray, targets: np.ndarray,
                masks: np.ndarray, lr: float):
+        """Vectorised Q-learning update."""
         B = obs.shape[0]
+        # Forward
         h0 = obs @ self.net.layers[0].W + self.net.layers[0].b
         a0 = relu(h0)
         h1 = a0 @ self.net.layers[1].W + self.net.layers[1].b
         a1 = relu(h1)
-        q  = a1 @ self.net.layers[2].W + self.net.layers[2].b
+        q  = a1 @ self.net.layers[2].W + self.net.layers[2].b             # [B, A]
 
-        q_a = q[np.arange(B), actions]
+        q_a = q[np.arange(B), actions]                                    # [B]
         loss = 0.5 * np.mean((q_a - targets) ** 2)
 
+        # Backward
         d_q = np.zeros_like(q)
         d_q[np.arange(B), actions] = (q_a - targets) / B
 
@@ -365,10 +404,15 @@ class SelfPlayEnv:
     """
     Wraps PokemonTCGEnv for self-play training.
 
-    Agent 0 plays as Lucario (player 0) — trained with PPO.
-    Agent 1 plays as Starmie (player 1) — trained with DQN.
+    Agent 0 always plays as Lycanroc (player 0).
+    Agent 1 always plays as Alolan Raichu (player 1).
 
-    Reward shaping is applied on top of the base environment rewards.
+    From each agent's perspective:
+      - obs is always encoded with that agent as "current_player"
+      - reward sign is always from that agent's perspective
+
+    step_as(player_idx, action) → advances that player's turn.
+    The env internally handles the opponent's perspective.
     """
 
     def __init__(self, seed: int = 42):
@@ -376,18 +420,18 @@ class SelfPlayEnv:
         self._seed = seed
 
     def reset(self, seed: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Returns (obs_p0, obs_p1) from each player's perspective."""
         s = seed if seed is not None else self._seed
-        self.env.reset(seed=s)
+        obs = self.env.reset(seed=s)
         return self._get_obs(0), self._get_obs(1)
 
     def _get_obs(self, player_idx: int) -> np.ndarray:
+        """Get observation from a specific player's perspective."""
         gs = self.env.gs
         orig = gs.current_player
         gs.current_player = player_idx
-        try:
-            obs = StateEncoder.encode(gs)
-        finally:
-            gs.current_player = orig
+        obs = StateEncoder.encode(gs)
+        gs.current_player = orig
         return obs
 
     def _get_mask(self, player_idx: int) -> np.ndarray:
@@ -395,10 +439,8 @@ class SelfPlayEnv:
         gs = self.env.gs
         orig = gs.current_player
         gs.current_player = player_idx
-        try:
-            mask = compute_legal_mask(gs)
-        finally:
-            gs.current_player = orig
+        mask = compute_legal_mask(gs)
+        gs.current_player = orig
         return mask
 
     @property
@@ -422,58 +464,54 @@ class SelfPlayEnv:
         Returns (obs_p0, obs_p1, reward_p0, reward_p1, done).
 
         ── Reward Shaping ──────────────────────────────────────────────────
+        All shaping rewards are from the acting player's perspective.
+        The base env reward (+1 KO, +10 win, -10 loss, -0.01/step) is preserved.
+
         ENERGY ATTACHMENT
-          -0.25  Attach energy to a Pokémon with no attack usable by this deck (dead end)
-          +0.20  Attach energy whose type matches any non-colorless cost on target
-          +0.05  Attach colorless/generic energy (no typed match)
+          +0.20  Attach energy whose type matches any non-colorless cost in an
+                 attack on the TARGET Pokémon  (typed energy on right attacker)
+          +0.05  Attach colorless / generic energy (still useful, less targeted)
+          -0.02  Attach energy to a Pokémon that has NO attacks at all
+                 (dead-end bench filler)
 
         ATTACK
-          +0.30  Base reward for attacking
-          +dmg/100  Proportional damage bonus
-          +0.10  Extra if chosen attack is highest-damage legal move
-          -0.15  Penalty for suboptimal attack (≥20 damage left on table)
+          +0.30  Base reward just for executing an attack (breaks passivity)
+          +dmg/100  Proportional bonus to actual base damage of chosen attack
+                    (e.g. 80-dmg attack → +0.80, 20-dmg → +0.20)
+                    Teaches the agent to prefer high-damage moves
+          +0.10  Extra if the chosen attack is the HIGHEST-damage legal move
+                 (prefer optimal attack selection)
+          -0.15  Penalty for attacking when opponent's HP is high but a
+                 higher-damage attack was available and legal (suboptimal choice)
 
         EVOLVE
-          +0.25  Evolve into a higher stage (more so for Mega ex)
+          +0.25  Evolve into a Stage 1 or Stage 2 (always a power increase)
 
-        PLAY POKEMON
-          +0.05  Bench a pokemon that is an evolution base
-          +0.02  Bench any basic
-
-        USE_ABILITY
-          +0.15  Use an active ability (meaningful game action)
-
-        ATTACH_TOOL
-          +0.10  Attach a tool to a Pokémon (one-time benefit)
-
-        USE_STADIUM
-          +0.05  Play a stadium card (changing board state)
-
-        RETREAT
-          +0.08  Retreat to a higher-HP benched Pokémon (tactical switch)
-          -0.05  Retreat to a lower-HP Pokémon (possibly suboptimal)
-
-        PROMOTE
-          +0.05  Promote scaled by HP fraction of new active
+        PLAY POKEMON (bench)
+          +0.05  Bench a basic that is an evolution base (Rockruff→Lycanroc etc.)
+          +0.02  Bench any basic (bench presence is good)
 
         END_TURN
           -0.20  End turn while an attack was legal (strong passivity penalty)
           -0.05  End turn when energy could have been attached but wasn't
+                 (only if no energy was used this turn AND energy in hand AND
+                  a pokemon needs energy)
 
         USE_SUPPORTER / USE_ITEM
-          +0.03  Small positive for using card effects
+          +0.03  Small positive for using supporters/items (card advantage)
         ─────────────────────────────────────────────────────────────────────
         """
         from ptcg_env import (
             compute_legal_mask, ActionMapper as AM, ActionType as AT,
             EnergyType, EnergyCard, PokemonCard, TrainerCard,
-            can_pay_cost, Stage, MAX_BENCH,
+            can_pay_cost, Stage,
         )
 
         cp = self.current_player
         gs = self.env.gs
         me = gs.players[cp]
 
+        # ── Snapshot pre-step state needed for shaping ───────────────────
         mask_before = compute_legal_mask(gs)
         attack_was_legal = any(
             mask_before[AM.ATTACK_START + i] > 0 for i in range(2)
@@ -482,8 +520,8 @@ class SelfPlayEnv:
             mask_before[AM.ATTACH_START + i] > 0
             for i in range(AM.ATTACH_COUNT)
         )
-        energy_used_before = me.energy_used
-        had_energy_in_hand = any(isinstance(c, EnergyCard) for c in me.hand)
+        energy_used_before  = me.energy_used
+        had_energy_in_hand  = any(isinstance(c, EnergyCard) for c in me.hand)
 
         atype, params = AM.decode(action)
 
@@ -493,68 +531,58 @@ class SelfPlayEnv:
         chosen_is_best_attack = False
         suboptimal_attack     = False
 
-        attack_would_ko       = False
         if atype == AT.ATTACK and me.active:
             ai = params.get("atk_idx", 0)
+            # Chosen attack damage
             if ai < len(me.active.attacks):
                 attack_damage_chosen = me.active.attacks[ai].damage
+
+            # Best available attack damage
             for atk_i, atk in enumerate(me.active.attacks):
                 if atk_i < AM.ATTACK_COUNT and mask_before[AM.ATTACK_START + atk_i]:
                     attack_damage_best = max(attack_damage_best, atk.damage)
+
             chosen_is_best_attack = (attack_damage_chosen >= attack_damage_best)
-            suboptimal_attack = (
+            suboptimal_attack     = (
                 not chosen_is_best_attack and
                 attack_damage_best - attack_damage_chosen >= 20
             )
-            opp_gs = gs.players[1 - cp]
-            if opp_gs.active and attack_damage_chosen >= opp_gs.active.current_hp:
-                attack_would_ko = True
 
         # Pre-step info for energy attachment shaping
         energy_type_attached   = None
         energy_target_pokemon  = None
         energy_matches_attack  = False
-        energy_target_is_dead  = False  # target has no attacks AND doesn't need retreat
-        is_legacy_energy       = False
 
         if atype == AT.ATTACH_ENERGY:
-            slot = params.get("slot", MAX_BENCH)
-            hi   = params.get("hand_idx", 0)
-            # slot MAX_BENCH = active; slots 0..4 = bench (matches new action space)
-            if slot == MAX_BENCH:
+            slot = params.get("slot", 0)
+            # Which energy card will be attached?
+            for c in me.hand:
+                if isinstance(c, EnergyCard):
+                    energy_type_attached = c.energy_type
+                    break
+            # Which pokemon is the target?
+            if slot == 0:
                 energy_target_pokemon = me.active
-            elif slot < len(me.bench):
-                energy_target_pokemon = me.bench[slot]
-            # Energy type is the card at hand_idx, not the first energy in hand
-            if hi < len(me.hand) and isinstance(me.hand[hi], EnergyCard):
-                energy_type_attached = me.hand[hi].energy_type
-                is_legacy_energy     = me.hand[hi].special_effect == "legacy_energy"
+            else:
+                bi = slot - 1
+                if bi < len(me.bench):
+                    energy_target_pokemon = me.bench[bi]
+
+            # Does this energy type satisfy any non-colorless attack cost?
             if energy_target_pokemon and energy_type_attached is not None:
                 for atk in energy_target_pokemon.attacks:
                     for etype, count in atk.energy_cost.items():
-                        if count > 0:
-                            # Legacy Energy satisfies any typed requirement
-                            if is_legacy_energy:
-                                energy_matches_attack = True
-                            elif etype != EnergyType.COLORLESS and etype == energy_type_attached:
-                                energy_matches_attack = True
-                            if energy_matches_attack:
-                                break
-                    if energy_matches_attack:
-                        break
-            # Dead-end check: only truly useless if no attacks AND retreat already covered
-            if energy_target_pokemon and not energy_target_pokemon.attacks:
-                retreat_cost = energy_target_pokemon.retreat_cost
-                energy_target_is_dead = energy_target_pokemon.total_energy() >= retreat_cost
+                        if (etype != EnergyType.COLORLESS and
+                                etype == energy_type_attached and count > 0):
+                            energy_matches_attack = True
+                            break
 
         # Pre-step info for evolve shaping
-        evolve_is_mega = False
-        evolve_stage   = None
+        evolve_stage = None
         if atype == AT.EVOLVE:
             hi = params.get("hand_idx", 0)
             if hi < len(me.hand) and isinstance(me.hand[hi], PokemonCard):
-                evolve_stage   = me.hand[hi].stage
-                evolve_is_mega = me.hand[hi].is_mega_ex
+                evolve_stage = me.hand[hi].stage
 
         # Pre-step info for bench play shaping
         benched_is_evo_base = False
@@ -562,19 +590,13 @@ class SelfPlayEnv:
             hi = params.get("hand_idx", 0)
             if hi < len(me.hand) and isinstance(me.hand[hi], PokemonCard):
                 played = me.hand[hi]
-                all_cards = me.hand + me.deck + me.bench
-                for c in all_cards:
-                    if isinstance(c, PokemonCard) and c.evolves_from == played.name:
+                # Is this pokemon an evolution base (something in deck/hand evolves from it)?
+                all_deck_hand = me.hand + me.deck + (me.bench if me.bench else [])
+                for c in all_deck_hand:
+                    if (isinstance(c, PokemonCard) and
+                            c.evolves_from == played.name):
                         benched_is_evo_base = True
                         break
-
-        # Pre-step info for retreat shaping
-        active_hp_before = me.active.current_hp if me.active else 0
-        retreat_target_hp = 0
-        if atype == AT.RETREAT:
-            bench_slot = params.get("bench_slot", 0)
-            if bench_slot < len(me.bench):
-                retreat_target_hp = me.bench[bench_slot].current_hp
 
         # ── Execute action ───────────────────────────────────────────────
         _, base_reward, done, info = self.env.step(action)
@@ -583,67 +605,56 @@ class SelfPlayEnv:
         shape = 0.0
 
         if atype == AT.ATTACK:
-            shape += 0.50
-            shape += attack_damage_chosen / 100.0
+            shape += 0.30                               # attacking at all
+            shape += attack_damage_chosen / 100.0       # damage magnitude
             if chosen_is_best_attack:
-                shape += 0.15
+                shape += 0.10                           # optimal attack choice
             if suboptimal_attack:
-                shape -= 0.20
-            if attack_would_ko:
-                shape += 0.50   # bonus for lethal attack
+                shape -= 0.15                           # punish leaving damage on table
 
         elif atype == AT.ATTACH_ENERGY:
-            if energy_target_is_dead:
-                shape -= 0.25
-            elif energy_matches_attack:
+            # Over-attaching to a saturated Pokémon is now blocked by the
+            # legal mask, so we don't need to penalise it here. We do still
+            # reward typed matches more than generic attaches, since this
+            # encourages the agent to send Fighting energies to its Fighting
+            # Pokémon instead of dumping them on basic-attack benchmons.
+            if energy_matches_attack:
                 shape += 0.20
             else:
                 shape += 0.05
 
         elif atype == AT.EVOLVE:
             if evolve_stage is not None:
-                shape += 0.35 if evolve_is_mega else 0.25
+                shape += 0.25                           # evolution is always good
 
         elif atype == AT.PLAY_POKEMON:
-            shape += 0.02
+            shape += 0.02                               # bench presence
             if benched_is_evo_base:
-                shape += 0.05
-
-        elif atype == AT.USE_ABILITY:
-            shape += 0.15
-
-        elif atype == AT.ATTACH_TOOL:
-            shape += 0.10
-
-        elif atype == AT.USE_STADIUM:
-            shape += 0.05
-
-        elif atype == AT.RETREAT:
-            if retreat_target_hp > active_hp_before:
-                shape += 0.08
-            else:
-                shape -= 0.05
-
-        elif atype == AT.PROMOTE:
-            if me.active is not None:
-                hp_frac = me.active.current_hp / max(me.active.hp, 1)
-                shape += 0.05 * hp_frac
-            else:
-                gs_after = self.env.gs
-                promoted = gs_after.players[cp].active
-                if promoted:
-                    hp_frac = promoted.current_hp / max(promoted.hp, 1)
-                    shape += 0.05 * hp_frac
+                shape += 0.05                           # evolution chain value
 
         elif atype == AT.END_TURN:
             if attack_was_legal:
-                shape -= 0.50   # strong penalty for skipping a legal attack
-            elif had_energy_in_hand and not energy_used_before and energy_attach_legal:
-                shape -= 0.10
+                shape -= 0.20                           # strong passivity penalty
+            elif (had_energy_in_hand and
+                  not energy_used_before and
+                  energy_attach_legal):
+                shape -= 0.05                           # missed energy attach
+
+        elif atype == AT.PROMOTE:
+            # Reward for promoting a high-HP pokemon (strategic choice)
+            bench_slot = params.get("bench_slot", 0)
+            # After step, who got promoted? Check the previously-pending player
+            for pidx in range(2):
+                p_after = self.env.gs.players[pidx]
+                if not p_after.pending_promotion and p_after.active is not None:
+                    hp_frac = p_after.active.current_hp / max(p_after.active.hp, 1)
+                    shape += 0.05 * hp_frac   # small reward for choosing healthy pokemon
+                    break
 
         elif atype in (AT.USE_SUPPORTER, AT.USE_ITEM):
-            shape += 0.03
+            shape += 0.03                               # card usage is productive
 
+        # ── Combine and assign per-player ────────────────────────────────
         total = base_reward + shape
         r0 = total if cp == 0 else -total
         r1 = total if cp == 1 else -total
@@ -651,26 +662,29 @@ class SelfPlayEnv:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PPO AGENT (Lucario — Player 0)
+# PPO AGENT (Lycanroc — Player 0)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class PPOAgent:
-    """On-policy PPO agent with GAE and clipped surrogate loss."""
+    """
+    On-policy PPO agent.
+    Collects trajectories by playing full episodes, then updates.
+    """
 
     def __init__(self,
                  player_idx: int,
-                 obs_size:   int   = OBS_SIZE,
-                 act_size:   int   = ACT_SIZE,
-                 hidden:     int   = 512,
+                 obs_size:   int = OBS_SIZE,
+                 act_size:   int = ACT_SIZE,
+                 hidden:     int = 128,
                  lr:         float = 3e-4,
                  gamma:      float = 0.99,
-                 lam:        float = 0.95,
+                 lam:        float = 0.95,    # GAE lambda
                  clip_eps:   float = 0.2,
                  vf_coef:    float = 0.5,
                  ent_coef:   float = 0.02,
-                 n_epochs:   int   = 8,
-                 batch_size: int   = 128,
-                 seed:       int   = 0):
+                 n_epochs:   int = 4,
+                 batch_size: int = 64,
+                 seed:       int = 0):
         self.player_idx = player_idx
         self.lr         = lr
         self.gamma      = gamma
@@ -684,19 +698,21 @@ class PPOAgent:
         self.rng = np.random.default_rng(seed)
         self.net = ActorCritic(obs_size, act_size, hidden, self.rng)
 
-        self.obs_buf:  List[np.ndarray] = []
-        self.act_buf:  List[int]        = []
-        self.rew_buf:  List[float]      = []
-        self.val_buf:  List[float]      = []
-        self.logp_buf: List[float]      = []
-        self.done_buf: List[bool]       = []
-        self.mask_buf: List[np.ndarray] = []
+        # Rollout buffer (cleared each update)
+        self.obs_buf:      List[np.ndarray] = []
+        self.act_buf:      List[int]        = []
+        self.rew_buf:      List[float]      = []
+        self.val_buf:      List[float]      = []
+        self.logp_buf:     List[float]      = []
+        self.done_buf:     List[bool]       = []
+        self.mask_buf:     List[np.ndarray] = []
 
-        self.train_steps   = 0
+        self.train_steps = 0
         self.total_rewards: List[float] = []
 
     def act(self, obs: np.ndarray, mask: np.ndarray,
             deterministic: bool = False) -> Tuple[int, float, float]:
+        """Sample action. Returns (action, log_prob, value)."""
         logits, value = self.net.forward(obs)
         masked_logits = logits + (mask - 1) * 1e9
         probs = softmax(masked_logits)
@@ -706,6 +722,9 @@ class PPOAgent:
         else:
             legal = np.where(mask > 0)[0]
             legal_probs = probs[legal]
+            # Small uniform blend prevents pathological policy collapse early
+            # in training without crushing the agent's ability to commit to
+            # a sharp policy after BC pretraining.
             uniform = np.ones(len(legal)) / len(legal)
             legal_probs = 0.95 * legal_probs + 0.05 * uniform
             legal_probs = legal_probs / legal_probs.sum()
@@ -724,39 +743,43 @@ class PPOAgent:
         self.mask_buf.append(mask)
 
     def finish_episode(self, last_value: float = 0.0):
+        """Mark end of episode (called after game over)."""
         self.val_buf.append(last_value)
 
     def _compute_gae(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Generalised Advantage Estimation."""
         n = len(self.rew_buf)
         advantages = np.zeros(n, dtype=np.float32)
         returns    = np.zeros(n, dtype=np.float32)
         last_gae   = 0.0
 
         for t in reversed(range(n)):
-            done_mask = 0.0 if self.done_buf[t] else 1.0
-            delta     = (self.rew_buf[t]
-                         + self.gamma * self.val_buf[t + 1] * done_mask
-                         - self.val_buf[t])
-            last_gae  = delta + self.gamma * self.lam * done_mask * last_gae
+            done_mask  = 0.0 if self.done_buf[t] else 1.0
+            delta      = (self.rew_buf[t]
+                          + self.gamma * self.val_buf[t + 1] * done_mask
+                          - self.val_buf[t])
+            last_gae   = delta + self.gamma * self.lam * done_mask * last_gae
             advantages[t] = last_gae
             returns[t]    = advantages[t] + self.val_buf[t]
 
+        # Normalise advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         return advantages, returns
 
     def update(self) -> Dict[str, float]:
+        """Run PPO update on stored rollout."""
         if len(self.obs_buf) < 2:
             return {}
 
         advantages, returns = self._compute_gae()
         n = len(self.obs_buf)
 
-        obs_arr  = np.stack(self.obs_buf)
-        act_arr  = np.array(self.act_buf,  dtype=np.int32)
-        logp_arr = np.array(self.logp_buf, dtype=np.float32)
-        mask_arr = np.stack(self.mask_buf)
+        obs_arr    = np.stack(self.obs_buf)
+        act_arr    = np.array(self.act_buf,  dtype=np.int32)
+        logp_arr   = np.array(self.logp_buf, dtype=np.float32)
+        mask_arr   = np.stack(self.mask_buf)
 
-        metrics  = {"pg_loss": 0, "vf_loss": 0, "entropy": 0}
+        metrics = {"pg_loss": 0, "vf_loss": 0, "entropy": 0}
         n_updates = 0
 
         for _ in range(self.n_epochs):
@@ -778,6 +801,7 @@ class PPOAgent:
             for k in metrics:
                 metrics[k] /= n_updates
 
+        # Clear buffers
         self.obs_buf.clear()
         self.act_buf.clear()
         self.rew_buf.clear()
@@ -794,45 +818,45 @@ class PPOAgent:
 
     def load(self, path: str):
         params = np.load(path, allow_pickle=True).item()
-        try:
-            self.net.set_params(params)
-        except ValueError:
-            print(f"  [PPO] Weight shape mismatch in {os.path.basename(path)} — "
-                  "ignoring (network size changed, starting fresh)")
-
+        self.net.set_params(params)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DQN AGENT (Starmie — Player 1)
+# DQN AGENT (Alolan Raichu — Player 1)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DQNAgent:
-    """Off-policy DQN with experience replay, target network, and epsilon-greedy."""
+    """
+    Off-policy DQN agent with:
+    - Experience replay
+    - Target network (hard update every N steps)
+    - Epsilon-greedy exploration with decay
+    """
 
     def __init__(self,
                  player_idx:      int,
                  obs_size:        int   = OBS_SIZE,
                  act_size:        int   = ACT_SIZE,
-                 hidden:          int   = 512,
+                 hidden:          int   = 128,
                  lr:              float = 1e-3,
                  gamma:           float = 0.99,
                  eps_start:       float = 1.0,
                  eps_end:         float = 0.05,
                  eps_decay_steps: int   = 30_000,
-                 buffer_size:     int   = 50_000,
-                 batch_size:      int   = 128,
+                 buffer_size:     int   = 20_000,
+                 batch_size:      int   = 64,
                  target_update:   int   = 500,
                  min_buffer:      int   = 1_000,
                  seed:            int   = 1):
-        self.player_idx    = player_idx
-        self.lr            = lr
-        self.gamma         = gamma
-        self.eps           = eps_start
-        self.eps_end       = eps_end
-        self.eps_decay     = (eps_start - eps_end) / eps_decay_steps
-        self.batch_size    = batch_size
-        self.target_update = target_update
-        self.min_buffer    = min_buffer
+        self.player_idx     = player_idx
+        self.lr             = lr
+        self.gamma          = gamma
+        self.eps            = eps_start
+        self.eps_end        = eps_end
+        self.eps_decay      = (eps_start - eps_end) / eps_decay_steps
+        self.batch_size     = batch_size
+        self.target_update  = target_update
+        self.min_buffer     = min_buffer
 
         self.rng   = np.random.default_rng(seed)
         self.qnet  = QNetwork(obs_size, act_size, hidden, self.rng)
@@ -847,6 +871,7 @@ class DQNAgent:
 
     def act(self, obs: np.ndarray, mask: np.ndarray,
             deterministic: bool = False) -> int:
+        """Epsilon-greedy action selection."""
         if not deterministic and self.rng.random() < self.eps:
             legal = np.where(mask > 0)[0]
             return int(self.rng.choice(legal))
@@ -855,36 +880,41 @@ class DQNAgent:
     def store(self, obs, action, reward, next_obs, done, mask, next_mask):
         self.buffer.push(obs, action, reward, next_obs, done, mask, next_mask)
         self.steps += 1
+        # Decay epsilon
         self.eps = max(self.eps_end, self.eps - self.eps_decay)
 
     def update(self) -> Optional[float]:
+        """Sample from buffer and update Q-network (vectorised)."""
         if len(self.buffer) < self.min_buffer:
             return None
 
         obs, actions, rewards, next_obs, dones, masks, next_masks = \
             self.buffer.sample(self.batch_size)
 
-        # Double DQN: online net selects action, target net evaluates
+        # Compute target Q-values (Double DQN): vectorised
+        # Online net selects actions
         h0n = next_obs @ self.qnet.net.layers[0].W + self.qnet.net.layers[0].b
         a0n = relu(h0n)
         h1n = a0n @ self.qnet.net.layers[1].W + self.qnet.net.layers[1].b
         a1n = relu(h1n)
-        q_next_online = a1n @ self.qnet.net.layers[2].W + self.qnet.net.layers[2].b
+        q_next_online = a1n @ self.qnet.net.layers[2].W + self.qnet.net.layers[2].b  # [B, A]
         q_next_online = np.where(next_masks > 0, q_next_online, -np.inf)
-        best_actions = np.argmax(q_next_online, axis=1)
+        best_actions = np.argmax(q_next_online, axis=1)                   # [B]
 
+        # Target net evaluates
         h0t = next_obs @ self.tnet.net.layers[0].W + self.tnet.net.layers[0].b
         a0t = relu(h0t)
         h1t = a0t @ self.tnet.net.layers[1].W + self.tnet.net.layers[1].b
         a1t = relu(h1t)
-        q_next_target = a1t @ self.tnet.net.layers[2].W + self.tnet.net.layers[2].b
-        q_next_vals = q_next_target[np.arange(self.batch_size), best_actions]
+        q_next_target = a1t @ self.tnet.net.layers[2].W + self.tnet.net.layers[2].b  # [B, A]
+        q_next_vals = q_next_target[np.arange(self.batch_size), best_actions]  # [B]
 
-        targets = rewards + self.gamma * q_next_vals * (1.0 - dones)
+        targets = rewards + self.gamma * q_next_vals * (1.0 - dones)     # [B]
 
         loss = self.qnet.update(obs, actions, targets, masks, self.lr)
         self.train_steps += 1
 
+        # Hard target update
         if self.train_steps % self.target_update == 0:
             self.tnet.copy_params_from(self.qnet)
 
@@ -895,12 +925,9 @@ class DQNAgent:
 
     def load(self, path: str):
         params = np.load(path, allow_pickle=True).tolist()
-        try:
-            self.qnet.set_params(params)
-            self.tnet.copy_params_from(self.qnet)
-        except ValueError:
-            print(f"  [DQN] Weight shape mismatch in {os.path.basename(path)} — "
-                  "ignoring (network size changed, starting fresh)")
+        self.qnet.set_params(params)
+        self.tnet.copy_params_from(self.qnet)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -909,31 +936,52 @@ class DQNAgent:
 
 class BehavioralCloningTrainer:
     """
-    Generates (observation, expert_action) pairs by running HeuristicAgent
+    Generates (observation, expert_action) pairs by running the HeuristicAgent
     on random games, then trains PPO's actor and DQN's Q-network via supervised
     cross-entropy / regression respectively.
+
+    This gives both agents a warm start: they begin RL already knowing
+    how to evolve, attack with the best move, and promote sensibly — rather
+    than discovering these from sparse rewards alone.
+
+    PPO pretraining:
+        Cross-entropy loss: -log π(expert_action | obs)
+        Trains actor head only (critic initialised to 0).
+
+    DQN pretraining:
+        Sets Q(s, expert_action) = +1.0, Q(s, other) = 0.0
+        (Simple supervised target; RL will refine the values.)
     """
 
     def __init__(self, n_games: int = 300, seed: int = 7):
         self.n_games = n_games
         self.rng     = np.random.default_rng(seed)
 
+    # ── Data collection ───────────────────────────────────────────────────
+
     def collect(self, player_idx: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Run HeuristicAgent for both sides, collect transitions for player_idx.
+        Returns (obs [N, S], actions [N], masks [N, A]).
+        """
         from ptcg_env import HeuristicAgent, PokemonTCGEnv, compute_legal_mask
 
         obs_list, act_list, mask_list = [], [], []
         h = HeuristicAgent()
 
         for g in range(self.n_games):
-            env = PokemonTCGEnv(seed=int(self.rng.integers(1e9)))
+            env  = PokemonTCGEnv(seed=int(self.rng.integers(1e9)))
             env.reset()
-            gs  = env.gs
+            gs   = env.gs
             steps = 0
 
             while not gs.game_over and steps < 400:
                 cp   = gs.current_player
+                orig = gs.current_player
+                gs.current_player = cp
                 mask = compute_legal_mask(gs)
                 obs  = StateEncoder.encode(gs)
+                gs.current_player = orig
 
                 action = h.act(env)
 
@@ -950,11 +998,17 @@ class BehavioralCloningTrainer:
         mask_arr = np.stack(mask_list).astype(np.float32)
         return obs_arr, act_arr, mask_arr
 
+    # ── PPO pretraining ───────────────────────────────────────────────────
+
     def pretrain_ppo(self, agent: PPOAgent,
                      n_epochs: int = 10,
                      batch_size: int = 128,
                      lr: float = 1e-3,
                      verbose: bool = True) -> List[float]:
+        """
+        Train PPO actor via cross-entropy on expert actions.
+        Loss = -mean( log π(a_expert | obs) )
+        """
         if verbose:
             print(f"  [BC-PPO] Collecting {self.n_games} expert games for P{agent.player_idx}...")
         obs, actions, masks = self.collect(agent.player_idx)
@@ -964,43 +1018,52 @@ class BehavioralCloningTrainer:
 
         losses = []
         for epoch in range(n_epochs):
-            idxs       = self.rng.permutation(N)
+            idxs      = self.rng.permutation(N)
             epoch_loss = 0.0
             n_batches  = 0
 
             for start in range(0, N, batch_size):
-                b  = idxs[start:start + batch_size]
+                b    = idxs[start:start + batch_size]
                 if len(b) < 4:
                     continue
-                ob = obs[b].astype(np.float32)
-                ac = actions[b]
-                mk = masks[b].astype(np.float32)
-                B  = len(b)
+                ob   = obs[b].astype(np.float32)
+                ac   = actions[b]
+                mk   = masks[b].astype(np.float32)
+                B    = len(b)
 
+                # Forward through actor-critic trunk
                 pre0 = ob @ agent.net.t0.W + agent.net.t0.b
                 h0   = relu(pre0)
                 pre1 = h0 @ agent.net.t1.W + agent.net.t1.b
                 feat = relu(pre1)
                 logits = feat @ agent.net.actor.W + agent.net.actor.b
 
+                # Masked softmax
                 logits_m = logits + (mk - 1.0) * 1e9
                 logits_m -= logits_m.max(axis=1, keepdims=True)
                 exp_l    = np.exp(logits_m)
                 probs    = exp_l / (exp_l.sum(axis=1, keepdims=True) + 1e-10)
 
-                log_pa  = np.log(probs[np.arange(B), ac] + 1e-8)
-                loss    = -log_pa.mean()
+                # Cross-entropy loss
+                log_pa   = np.log(probs[np.arange(B), ac] + 1e-8)
+                loss     = -log_pa.mean()
                 epoch_loss += loss
 
-                # dL/dz = (p - one_hot) / B  — already in logit space, no Jacobian needed
+                # Backward: d(CE)/d(logit_i) = p_i - 1[i==a] (for masked softmax)
                 d_logits               = probs.copy()
                 d_logits[np.arange(B), ac] -= 1.0
                 d_logits               /= B
 
-                agent.net.actor.dW = (feat.T @ d_logits).astype(np.float32)
-                agent.net.actor.db = d_logits.sum(axis=0).astype(np.float32)
-                d_feat_a = (d_logits @ agent.net.actor.W.T).astype(np.float32)
+                # Chain through softmax Jacobian
+                dot        = (d_logits * probs).sum(axis=1, keepdims=True)
+                d_logits_j = probs * (d_logits - dot)
 
+                # Actor head grads
+                agent.net.actor.dW = (feat.T @ d_logits_j).astype(np.float32)
+                agent.net.actor.db = d_logits_j.sum(axis=0).astype(np.float32)
+                d_feat_a = (d_logits_j @ agent.net.actor.W.T).astype(np.float32)
+
+                # Trunk grads
                 d_pre1 = d_feat_a * relu_grad(pre1)
                 agent.net.t1.dW = (h0.T  @ d_pre1).astype(np.float32)
                 agent.net.t1.db = d_pre1.sum(axis=0).astype(np.float32)
@@ -1020,11 +1083,17 @@ class BehavioralCloningTrainer:
 
         return losses
 
+    # ── DQN pretraining ───────────────────────────────────────────────────
+
     def pretrain_dqn(self, agent: DQNAgent,
                      n_epochs: int = 10,
                      batch_size: int = 128,
                      lr: float = 1e-3,
                      verbose: bool = True) -> List[float]:
+        """
+        Train DQN Q-network: Q(s, a_expert)=+1, Q(s, others)=0.
+        Uses MSE regression so the network learns action ranking.
+        """
         if verbose:
             print(f"  [BC-DQN] Collecting {self.n_games} expert games for P{agent.player_idx}...")
         obs, actions, masks = self.collect(agent.player_idx)
@@ -1047,20 +1116,24 @@ class BehavioralCloningTrainer:
                 mk = masks[b].astype(np.float32)
                 B  = len(b)
 
-                targets_q = mk * 0.0
-                targets_q[np.arange(B), ac] = 1.0
+                # Build targets: +1 for expert action, 0 for others (only legal)
+                targets_q = mk * 0.0                      # [B, A] — zeros
+                targets_q[np.arange(B), ac] = 1.0         # expert gets +1
 
-                h0n = ob  @ agent.qnet.net.layers[0].W + agent.qnet.net.layers[0].b
-                a0n = relu(h0n)
-                h1n = a0n @ agent.qnet.net.layers[1].W + agent.qnet.net.layers[1].b
-                a1n = relu(h1n)
-                q   = a1n @ agent.qnet.net.layers[2].W + agent.qnet.net.layers[2].b
+                # Forward
+                h0n  = ob  @ agent.qnet.net.layers[0].W + agent.qnet.net.layers[0].b
+                a0n  = relu(h0n)
+                h1n  = a0n @ agent.qnet.net.layers[1].W + agent.qnet.net.layers[1].b
+                a1n  = relu(h1n)
+                q    = a1n @ agent.qnet.net.layers[2].W + agent.qnet.net.layers[2].b
 
-                diff    = (q - targets_q) * mk
+                # MSE only on legal actions
+                diff    = (q - targets_q) * mk            # [B, A]
                 loss    = 0.5 * (diff ** 2).mean()
                 epoch_loss += loss
 
-                d_q  = diff / B  # mean over batch; diff already zero for illegal actions
+                # Backward
+                d_q  = diff * mk / (mk.sum() + 1e-8)
                 d_a1 = d_q  @ agent.qnet.net.layers[2].W.T
                 agent.qnet.net.layers[2].dW = (a1n.T @ d_q).astype(np.float32)
                 agent.qnet.net.layers[2].db = d_q.sum(axis=0).astype(np.float32)
@@ -1078,6 +1151,7 @@ class BehavioralCloningTrainer:
                     layer.adam_update(lr)
                 n_batches += 1
 
+            # Sync target network after each epoch
             agent.tnet.copy_params_from(agent.qnet)
 
             avg = epoch_loss / max(n_batches, 1)
@@ -1107,14 +1181,14 @@ def pretrain_agents(ppo: PPOAgent, dqn: DQNAgent,
 
 def train_selfplay(
     n_episodes:      int   = 3_000,
-    ppo_rollout_len: int   = 512,
+    ppo_rollout_len: int   = 512,    # PPO collects this many turns before updating
     eval_every:      int   = 200,
     eval_games:      int   = 50,
     seed:            int   = 42,
     verbose:         bool  = True,
 ) -> Tuple[PPOAgent, DQNAgent, Dict]:
     """
-    Train PPO (Lucario, P0) vs DQN (Starmie, P1) via self-play.
+    Train PPO (Lycanroc, P0) vs DQN (Raichu, P1) via self-play.
 
     Each episode:
       - Both agents play their role until game over.
@@ -1129,18 +1203,19 @@ def train_selfplay(
     dqn_agent = DQNAgent(player_idx=1, seed=int(rng.integers(1e6)))
 
     history = {
-        "episode":     [],
-        "p0_winrate":  [],
-        "p1_winrate":  [],
-        "avg_turns":   [],
-        "ppo_entropy": [],
-        "dqn_loss":    [],
-        "ppo_pg_loss": [],
+        "episode":        [],
+        "p0_winrate":     [],
+        "p1_winrate":     [],
+        "avg_turns":      [],
+        "ppo_entropy":    [],
+        "dqn_loss":       [],
+        "ppo_pg_loss":    [],
     }
 
     ppo_turns_since_update = 0
-    recent_wins  = deque(maxlen=eval_games)
-    recent_turns = deque(maxlen=eval_games)
+    episode_rewards  = [[], []]  # per-player episode totals
+    recent_wins      = deque(maxlen=eval_games)
+    recent_turns     = deque(maxlen=eval_games)
 
     t_start = time.time()
 
@@ -1149,22 +1224,28 @@ def train_selfplay(
         senv = SelfPlayEnv(seed=env_seed)
         senv.reset(seed=env_seed)
 
-        ep_turns      = 0
-        dqn_prev      = None
-        last_dqn_obs1 = None   # tracks final obs1 from most recent DQN step
+        ep_reward = [0.0, 0.0]
+        ep_turns  = 0
+        dqn_prev  = None   # (obs, action, reward, mask) waiting for next_obs
 
         while not senv.done:
             cp = senv.current_player
             obs, mask = senv.obs_and_mask(cp)
 
             if cp == 0:
+                # ── PPO agent (Lycanroc) ──────────────────────────────────
                 action, log_prob, value = ppo_agent.act(obs, mask)
                 obs0, obs1, r0, r1, done = senv.step(action)
+                ep_reward[0] += r0
                 ppo_agent.store(obs, action, r0, value, log_prob, done, mask)
                 ppo_turns_since_update += 1
 
                 if ppo_turns_since_update >= ppo_rollout_len:
-                    last_val = 0.0 if done else float(ppo_agent.net.forward(obs0)[1])
+                    # Bootstrap value from last state
+                    if not done:
+                        _, last_val = ppo_agent.net.forward(obs0)
+                    else:
+                        last_val = 0.0
                     ppo_agent.finish_episode(last_val)
                     m = ppo_agent.update()
                     ppo_turns_since_update = 0
@@ -1175,19 +1256,22 @@ def train_selfplay(
                 ep_turns += 1
 
             else:
+                # ── DQN agent (Raichu) ────────────────────────────────────
                 action = dqn_agent.act(obs, mask)
                 obs0, obs1, r0, r1, done = senv.step(action)
-                last_dqn_obs1 = obs1  # keep last known DQN-perspective final state
+                ep_reward[1] += r1
 
+                # Store previous DQN transition now that we have next_obs
                 if dqn_prev is not None:
                     p_obs, p_act, p_rew, p_mask = dqn_prev
-                    next_mask1 = (senv._get_mask(1) if not done
-                                  else np.zeros(ACT_SIZE, np.float32))
+                    next_obs1, next_mask1 = senv.obs_and_mask(1) if not done else (obs1, mask)
                     dqn_agent.store(p_obs, p_act, p_rew, obs1, False, p_mask, next_mask1)
 
                 if done:
-                    dqn_agent.store(obs, action, r1, obs1, True,
-                                    mask, np.zeros(ACT_SIZE, np.float32))
+                    # Final transition
+                    next_obs1 = obs1
+                    next_mask1 = np.zeros(ACT_SIZE, dtype=np.float32)
+                    dqn_agent.store(obs, action, r1, next_obs1, True, mask, next_mask1)
                     dqn_prev = None
                 else:
                     dqn_prev = (obs, action, r1, mask)
@@ -1201,17 +1285,17 @@ def train_selfplay(
         # Episode done: flush PPO if it has data
         if len(ppo_agent.obs_buf) > 0:
             ppo_agent.finish_episode(0.0)
-            ppo_agent.update()
+            m = ppo_agent.update()
             ppo_turns_since_update = 0
 
-        # Flush pending DQN transition — use last known obs1, not stale p_obs
+        # Flush pending DQN transition
         if dqn_prev is not None:
             p_obs, p_act, p_rew, p_mask = dqn_prev
-            zero_mask  = np.zeros(ACT_SIZE, dtype=np.float32)
-            next_obs   = last_dqn_obs1 if last_dqn_obs1 is not None else p_obs
-            dqn_agent.store(p_obs, p_act, p_rew, next_obs, True, p_mask, zero_mask)
+            zero_mask = np.zeros(ACT_SIZE, dtype=np.float32)
+            dqn_agent.store(p_obs, p_act, p_rew, p_obs, True, p_mask, zero_mask)
 
-        recent_wins.append(senv.winner)
+        winner = senv.winner
+        recent_wins.append(winner)
         recent_turns.append(ep_turns)
 
         if verbose and (ep + 1) % eval_every == 0:
@@ -1229,8 +1313,8 @@ def train_selfplay(
                      max(1, len(history["dqn_loss"][-50:])))
 
             print(f"  Ep {ep+1:>5}/{n_episodes} │ "
-                  f"P0(PPO/Lucario)={w0:.2%} "
-                  f"P1(DQN/Starmie)={w1:.2%} "
+                  f"P0(PPO/Lycanroc)={w0:.2%} "
+                  f"P1(DQN/Raichu)={w1:.2%} "
                   f"Draw={draw:.2%} │ "
                   f"AvgTurns={avg_t:.1f} │ "
                   f"ε={eps:.3f} │ "
@@ -1253,40 +1337,59 @@ def train_selfplay(
 def evaluate(ppo_agent: PPOAgent, dqn_agent: DQNAgent,
              n_games: int = 200, seed: int = 9999,
              verbose: bool = True) -> Dict:
+    """
+    Evaluate trained agents (deterministic) against each other and baselines.
+    """
     rng = np.random.default_rng(seed)
 
-    class _Random:
-        def act(self, senv, cp):
-            obs, mask = senv.obs_and_mask(cp)
-            legal = np.where(mask > 0)[0]
-            return int(rng.choice(legal))
-
-    def run_match(agent0, agent1, n, desc=""):
+    def run_match(agent0, agent1, n, base_seed, desc=""):
         wins = [0, 0, 0]
         total_turns = []
         for g in range(n):
             senv = SelfPlayEnv(seed=int(rng.integers(1e9)))
             senv.reset()
             turns = 0
-            while not senv.done and turns < 800:
+            while not senv.done and turns < 600:
                 cp = senv.current_player
                 obs, mask = senv.obs_and_mask(cp)
-                ag = agent0 if cp == 0 else agent1
-                if isinstance(ag, PPOAgent):
-                    action, _, _ = ag.act(obs, mask, deterministic=True)
-                elif isinstance(ag, DQNAgent):
-                    action = ag.act(obs, mask, deterministic=True)
-                elif isinstance(ag, HeuristicAgent):
-                    action = ag.act(senv.env)
+                if cp == 0:
+                    if hasattr(agent0, 'act'):
+                        if isinstance(agent0, PPOAgent):
+                            action, _, _ = agent0.act(obs, mask, deterministic=True)
+                        elif isinstance(agent0, DQNAgent):
+                            action = agent0.act(obs, mask, deterministic=True)
+                        elif isinstance(agent0, HeuristicAgent):
+                            action = agent0.act(senv.env)
+                        else:
+                            legal = np.where(mask > 0)[0]
+                            action = int(rng.choice(legal))
+                    else:
+                        legal = np.where(mask > 0)[0]
+                        action = int(rng.choice(legal))
                 else:
-                    action = ag.act(senv, cp)
+                    if hasattr(agent1, 'act'):
+                        if isinstance(agent1, PPOAgent):
+                            action, _, _ = agent1.act(obs, mask, deterministic=True)
+                        elif isinstance(agent1, DQNAgent):
+                            action = agent1.act(obs, mask, deterministic=True)
+                        elif isinstance(agent1, HeuristicAgent):
+                            action = agent1.act(senv.env)
+                        else:
+                            legal = np.where(mask > 0)[0]
+                            action = int(rng.choice(legal))
+                    else:
+                        legal = np.where(mask > 0)[0]
+                        action = int(rng.choice(legal))
                 senv.step(action)
                 turns += 1
             w = senv.winner
-            wins[2 if w < 0 else w] += 1
+            if w < 0:
+                wins[2] += 1
+            else:
+                wins[w] += 1
             total_turns.append(turns)
         if verbose:
-            print(f"  {desc:42s} │ "
+            print(f"  {desc:40s} │ "
                   f"P0={wins[0]:3d}/{n} ({wins[0]/n:.1%}) "
                   f"P1={wins[1]:3d}/{n} ({wins[1]/n:.1%}) "
                   f"Draw={wins[2]} │ "
@@ -1294,27 +1397,45 @@ def evaluate(ppo_agent: PPOAgent, dqn_agent: DQNAgent,
         return wins, total_turns
 
     if verbose:
-        print("\n" + "═" * 72)
+        print("\n" + "═" * 70)
         print("EVALUATION RESULTS")
-        print("═" * 72)
+        print("═" * 70)
+        print(f"  {'Matchup':40s} │ P0 Winrate      P1 Winrate  Draw │ AvgTurns")
+        print("  " + "─" * 68)
 
     heuristic = HeuristicAgent()
-    rand      = _Random()
-    results   = {}
+    rand_rng   = np.random.default_rng(42)
 
-    w, t = run_match(ppo_agent, dqn_agent, n_games,
-                     "PPO(Lucario) vs DQN(Starmie)")
+    class NumpyRandom:
+        def act(self, senv):
+            obs, mask = senv.obs_and_mask(senv.current_player)
+            legal = np.where(mask > 0)[0]
+            return int(rand_rng.choice(legal))
+
+    results = {}
+
+    # PPO vs DQN
+    w, t = run_match(ppo_agent, dqn_agent, n_games, seed,
+                     "PPO(Lycanroc) vs DQN(Raichu)")
     results["ppo_vs_dqn"] = {"wins": w, "avg_turns": sum(t)/len(t)}
 
-    w, t = run_match(ppo_agent, rand, n_games,
-                     "PPO(Lucario) vs Random")
+    # PPO vs Random
+    w, t = run_match(ppo_agent, NumpyRandom(), n_games, seed,
+                     "PPO(Lycanroc) vs Random")
     results["ppo_vs_random"] = {"wins": w, "avg_turns": sum(t)/len(t)}
 
-    w, t = run_match(rand, dqn_agent, n_games,
-                     "Random vs DQN(Starmie)")
+    # DQN vs Random
+    class FlipWrapper:
+        """Adapter to make DQN act as P0 for eval purposes."""
+        pass
+
+    # DQN as P1 vs Random as P0
+    w, t = run_match(NumpyRandom(), dqn_agent, n_games, seed,
+                     "Random vs DQN(Raichu)")
     results["random_vs_dqn"] = {"wins": w, "avg_turns": sum(t)/len(t)}
 
-    w, t = run_match(heuristic, heuristic, n_games,
+    # Heuristic vs Heuristic baseline
+    w, t = run_match(heuristic, heuristic, n_games, seed,
                      "Heuristic vs Heuristic (baseline)")
     results["heuristic_vs_heuristic"] = {"wins": w, "avg_turns": sum(t)/len(t)}
 
@@ -1327,6 +1448,9 @@ def evaluate(ppo_agent: PPOAgent, dqn_agent: DQNAgent,
 
 def analyse_agent_policy(agent: PPOAgent | DQNAgent, n_states: int = 100,
                           seed: int = 42):
+    """
+    Sample random states and analyse what action types the agent prefers.
+    """
     rng = np.random.default_rng(seed)
     type_counts = {t: 0 for t in ActionType}
     total = 0
@@ -1334,11 +1458,11 @@ def analyse_agent_policy(agent: PPOAgent | DQNAgent, n_states: int = 100,
     for _ in range(n_states):
         env = SelfPlayEnv(seed=int(rng.integers(1e9)))
         env.reset()
-        for _ in range(int(rng.integers(3, 20))):
+        # Play a few steps to get varied states
+        for _ in range(int(rng.integers(3, 15))):
             if env.done:
                 break
-            cp = env.current_player
-            obs, mask = env.obs_and_mask(cp)
+            obs, mask = env.obs_and_mask(env.current_player)
             legal = np.where(mask > 0)[0]
             env.step(int(rng.choice(legal)))
 
@@ -1368,9 +1492,9 @@ def analyse_agent_policy(agent: PPOAgent | DQNAgent, n_states: int = 100,
 
 if __name__ == "__main__":
     print("═" * 70)
-    print("POKEMON TCG V4 SELF-PLAY RL TRAINING")
-    print("  Agent 0: PPO  (Mega Lucario ex deck)")
-    print("  Agent 1: DQN  (Mega Starmie ex deck)")
+    print("POKEMON TCG SELF-PLAY RL TRAINING")
+    print("  Agent 0: PPO  (Lycanroc deck)")
+    print("  Agent 1: DQN  (Alolan Raichu deck)")
     print("═" * 70)
     print(f"\nObservation space: {OBS_SIZE}  │  Action space: {ACT_SIZE}")
     print()
@@ -1379,6 +1503,9 @@ if __name__ == "__main__":
 
     print(f"Training for {N_EPISODES} self-play episodes...")
     print(f"{'─'*70}")
+    print(f"  {'Episode':>8} │ P0(PPO/Lycanroc) P1(DQN/Raichu)  Draw "
+          f"│ AvgTurns │ ε │ Entropy │ DQNLoss │ Time")
+    print(f"  {'─'*68}")
 
     ppo_agent, dqn_agent, history = train_selfplay(
         n_episodes      = N_EPISODES,
@@ -1389,17 +1516,20 @@ if __name__ == "__main__":
         verbose         = True,
     )
 
-    os.makedirs("v4/models", exist_ok=True)
-    ppo_agent.save("v4/models/ppo_lucario.npy")
-    dqn_agent.save("v4/models/dqn_starmie.npy")
-    print("\n✓ Agents saved to v4/models/")
+    # Save trained agents
+    ppo_agent.save("/mnt/user-data/outputs/ppo_lycanroc.npy")
+    dqn_agent.save("/mnt/user-data/outputs/dqn_raichu.npy")
+    print("\n✓ Agents saved to outputs/")
 
+    # Full evaluation
     results = evaluate(ppo_agent, dqn_agent, n_games=200, verbose=True)
 
+    # Policy analysis
     print()
     analyse_agent_policy(ppo_agent, n_states=200)
     analyse_agent_policy(dqn_agent, n_states=200)
 
+    # Training curve summary
     if history["episode"]:
         print("\n  Training curve (winrates at eval checkpoints):")
         print(f"  {'Episode':>8} │ {'PPO(P0)':>10} {'DQN(P1)':>10} {'AvgTurns':>10}")
