@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Trained weights (large binary files — generate with train.py)
+v4/outputs/*.npy
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
